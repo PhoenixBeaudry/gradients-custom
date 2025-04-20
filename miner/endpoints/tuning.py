@@ -137,6 +137,10 @@ async def task_offer(
     try:
         logger.info("An offer has come through")
         logger.info(f"Model: {request.model.lower()}, Time: {request.hours_to_complete}")
+        if request.task_type == TaskType.INSTRUCTTEXTTASK:
+            logger.info("Task Type: Instruct")
+        if request.task_type == TaskType.DPOTASK:
+            logger.info("Task Type: DPO")
 
         if request.task_type not in [TaskType.INSTRUCTTEXTTASK, TaskType.DPOTASK]:
             return MinerTaskResponse(
