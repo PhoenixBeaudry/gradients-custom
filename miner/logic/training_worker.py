@@ -137,33 +137,6 @@ class TrainingWorker:
             self.threads.append(t)
 
         self.docker_client = docker.from_env()
-        
-        # Restore and re-run backup jobs
-        self.restore_backup_jobs()
-        
-    def restore_backup_jobs(self):
-        """
-        Restore and re-run jobs from backup files.
-        This is called during initialization to recover any jobs that failed
-        during a previous run.
-        """
-        logger.info("Checking for backup jobs to restore...")
-        backup_jobs = load_job_backups()
-        
-        if not backup_jobs:
-            logger.info("No backup jobs found.")
-            return
-            
-        logger.info(f"Found {len(backup_jobs)} backup jobs to restore.")
-        
-        # Re-enqueue each backup job
-        for job in backup_jobs:
-            logger.info(f"Restoring job {job.job_id} (model: {job.model})")
-            # Clear any previous error message
-            job.error_message = None
-            # Enqueue the job with is_restored=True to avoid saving it again
-            self.enqueue_job(job, is_restored=True)
-            logger.info(f"Job {job.job_id} restored and queued for processing")
 
     def _worker(self):
         while True:
