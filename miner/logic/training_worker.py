@@ -74,6 +74,47 @@ def delete_job_backup(job: Job) -> None:
     else:
         logger.warning(f"No backup file found at {filepath}")
 
+
+def load_job_backups() -> list[Job]:
+    """
+    Load all job backups from disk.
+    
+    Returns:
+        A list of Job objects loaded from backup files
+    """
+    jobs = []
+    
+    # Ensure the backup directory exists
+    if not os.path.exists(cst.JOB_BACKUP_DIR):
+        os.makedirs(cst.JOB_BACKUP_DIR, exist_ok=True)
+        return jobs
+    
+    # List all files in the backup directory
+    for filename in os.listdir(cst.JOB_BACKUP_DIR):
+        if not filename.endswith('.json'):
+            continue
+            
+        filepath = os.path.join(cst.JOB_BACKUP_DIR, filename)
+        
+        try:
+            with open(filepath, 'r') as f:
+                job_dict = json.load(f)
+                
+            # Determine the job type and create the appropriate object
+            if 'dataset_zip' in job_dict:
+                job = DiffusionJob(**job_dict)
+            elif 'dataset' in job_dict:
+                job = TextJob(**job_dict)
+            else:
+                job = Job(**job_dict)
+                
+            jobs.append(job)
+            logger.info(f"Loaded job backup from {filepath}")
+        except Exception as e:
+            logger.error(f"Error loading job backup from {filepath}: {str(e)}")
+    
+    return jobs
+
 class TrainingWorker:
     def __init__(self, max_workers: int = 1):
         logger.info("=" * 80)
@@ -96,6 +137,33 @@ class TrainingWorker:
             self.threads.append(t)
 
         self.docker_client = docker.from_env()
+        
+        # Restore and re-run backup jobs
+        self.restore_backup_jobs()
+        
+    def restore_backup_jobs(self):
+        """
+        Restore and re-run jobs from backup files.
+        This is called during initialization to recover any jobs that failed
+        during a previous run.
+        """
+        logger.info("Checking for backup jobs to restore...")
+        backup_jobs = load_job_backups()
+        
+        if not backup_jobs:
+            logger.info("No backup jobs found.")
+            return
+            
+        logger.info(f"Found {len(backup_jobs)} backup jobs to restore.")
+        
+        # Re-enqueue each backup job
+        for job in backup_jobs:
+            logger.info(f"Restoring job {job.job_id} (model: {job.model})")
+            # Clear any previous error message
+            job.error_message = None
+            # Enqueue the job with is_restored=True to avoid saving it again
+            self.enqueue_job(job, is_restored=True)
+            logger.info(f"Job {job.job_id} restored and queued for processing")
 
     def _worker(self):
         while True:
@@ -127,10 +195,20 @@ class TrainingWorker:
                     self._running_count -= 1
                 self.job_queue.task_done()
 
-    def enqueue_job(self, job: Job):
+    def enqueue_job(self, job: Job, is_restored: bool = False):
+        """
+        Enqueue a job for processing.
+        
+        Args:
+            job: The job to enqueue
+            is_restored: Whether this job was restored from a backup
+        """
         job.status = JobStatus.QUEUED
-        # Save the job to disk before enqueueing it
-        save_job_to_disk(job)
+        
+        # Save the job to disk before enqueueing it, unless it's a restored job
+        if not is_restored:
+            save_job_to_disk(job)
+            
         self.job_queue.put(job)
         self.job_store[job.job_id] = job
 
