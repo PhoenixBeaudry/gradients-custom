@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TypeVar
@@ -22,9 +21,6 @@ class WorkerConfig:
 
 @lru_cache
 def factory_worker_config() -> WorkerConfig:
-    # Create a directory for job persistence
-    persistence_dir = os.path.join(os.path.dirname(__file__), "..", "job_persistence")
-    
     return WorkerConfig(
-        trainer=TrainingWorker(max_workers=1, persistence_dir=persistence_dir),
+        trainer=TrainingWorker(max_workers=1),
     )
