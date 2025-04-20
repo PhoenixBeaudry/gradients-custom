@@ -183,24 +183,23 @@ async def task_offer_image(
 ) -> MinerTaskResponse:
     try:
         logger.info("An image offer has come through")
-        global current_job_finish_time
-        current_time = datetime.now()
 
-        if request.task_type != TaskType.IMAGETASK:
-            return MinerTaskResponse(message="This endpoint only accepts image tasks", accepted=False)
+        # instead of a single finish time, check how many jobs are _actually_ running
+        running = worker_config.trainer.active_job_count()
+        capacity = 1
 
-        if current_job_finish_time is None or current_time + timedelta(hours=1) > current_job_finish_time:
-            if request.hours_to_complete < 3:
-                logger.info("Accepting the image offer")
-                return MinerTaskResponse(message="Yes. I can do image jobs", accepted=True)
-            else:
-                logger.info("Rejecting offer - too long")
-                return MinerTaskResponse(message="I only accept small jobs", accepted=False)
-        else:
-            return MinerTaskResponse(
-                message=f"Currently busy with another job until {current_job_finish_time.isoformat()}",
-                accepted=False,
-            )
+        if running >= capacity + 4:
+            return MinerTaskResponse(message=f"Queue full ({running})", accepted=False)
+
+
+        # optional: still reject absurdly long jobs if you want
+        if request.hours_to_complete >= 48:
+            logger.info(f"Rejecting offer: too long ({request.hours_to_complete}h)")
+            return MinerTaskResponse(message="Job too long", accepted=False)
+
+        # otherwise accept
+        logger.info(f"Accepting offer ({running+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
+        return MinerTaskResponse(message="-----:)-----", accepted=True)
 
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
