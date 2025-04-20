@@ -30,7 +30,7 @@ micro_batch_size: 4
 num_epochs: 2
 optimizer: adamw_bnb_8bit
 lr_scheduler: cosine
-learning_rate: 3e-5
+learning_rate: 0.0002
 
 train_on_inputs: false
 group_by_length: false
@@ -58,16 +58,18 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
+
 saves_per_epoch: 4
 warmup_steps: 10
 evals_per_epoch: 4
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 30
-max_grad_norm: 1.0
+max_steps: 10
+debug:
 
 debug:
 deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
-weight_decay: 0.01
+weight_decay: 0.0
 fsdp:
 fsdp_config:
+

@@ -15,7 +15,7 @@ except (TypeError, ValueError):
     NETUID = DEFAULT_NETUID
 
 MINER_DOCKER_IMAGE = "weightswandering/tuning_miner:latest"
-MINER_DOCKER_IMAGE_DIFFUSION = "diagonalge/miner-diffusion-flux:latest"
+MINER_DOCKER_IMAGE_DIFFUSION = "phoenixbeaudry/god-text-miner-diffusion:custom"
 VALIDATOR_DOCKER_IMAGE = "weightswandering/tuning_vali:latest"
 VALIDATOR_DOCKER_IMAGE_DPO = "weightswandering/tuning_vali_dpo:latest"
 VALIDATOR_DOCKER_IMAGE_DIFFUSION = "diagonalge/tuning_validator_diffusion:latest"
@@ -28,6 +28,7 @@ CACHE_DIR = "~/.cache/huggingface"
 CACHE_DIR_HUB = os.path.expanduser("~/.cache/huggingface/hub")
 DIFFUSION_DATASET_DIR = "core/dataset/images"
 CONTAINER_FLUX_PATH = "/app/flux/unet"
+JOB_BACKUP_DIR = "core/job_backups/"
 
 DIFFUSION_SDXL_REPEATS = 10
 DIFFUSION_FLUX_REPEATS = 1

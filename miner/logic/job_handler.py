@@ -11,7 +11,6 @@ import yaml
 from docker.errors import DockerException
 from fiber.logging_utils import get_logger
 from huggingface_hub import HfApi
-
 from core import constants as cst
 from core.config.config_handler import create_dataset_entry
 from core.config.config_handler import save_config
@@ -86,6 +85,7 @@ def _load_and_modify_config(
 
     config = update_flash_attention(config, model)
     config = update_model_info(config, model, task_id, expected_repo_name)
+
     config["mlflow_experiment_name"] = dataset
 
     return config
@@ -200,7 +200,8 @@ def start_tuning_container_diffusion(job: DiffusionJob):
             environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",
-            device_requests=[docker.types.DeviceRequest(count=1, capabilities=[["gpu"]])],
+            shm_size="32g",
+            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             detach=True,
             tty=True,
         )
@@ -349,7 +350,7 @@ def start_tuning_container(job: TextJob):
             logger.info(dataset_dir)
             volume_bindings[dataset_dir] = {
                 "bind": "/workspace/input_data",
-                "mode": "ro",
+                "mode": "rw",
             }
 
         if isinstance(job.dataset_type, DPODatasetType):
@@ -384,7 +385,7 @@ def start_tuning_container(job: TextJob):
         repo = config.get("hub_model_id", None)
         if repo:
             hf_api = HfApi(token=cst.HUGGINGFACE_TOKEN)
-            hf_api.update_repo_visibility(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
+            hf_api.update_repo_settings(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
             logger.info(f"Successfully made repository {repo} public")
 
         if "container" in locals():
