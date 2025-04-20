@@ -12,7 +12,7 @@ dataset_prepared_path:
 val_set_size: 0.05
 output_dir: miner_id_24
 
-sequence_len: 512
+sequence_len: 1024
 sample_packing: true
 pad_to_sequence_len: true
 trust_remote_code: true
