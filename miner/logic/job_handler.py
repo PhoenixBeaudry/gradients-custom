@@ -339,6 +339,10 @@ def start_tuning_container(job: TextJob):
                 "mode": "rw",
             },
         }
+        volume_bindings[ os.path.expanduser("~/.cache/huggingface") ] = {
+            "bind": "/root/.cache/huggingface",
+            "mode": "rw"
+        }
 
         if job.file_format != FileFormat.HF:
             dataset_dir = os.path.dirname(os.path.abspath(job.dataset))
