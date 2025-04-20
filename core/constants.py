@@ -15,7 +15,7 @@ except (TypeError, ValueError):
     NETUID = DEFAULT_NETUID
 
 MINER_DOCKER_IMAGE = "weightswandering/tuning_miner:latest"
-MINER_DOCKER_IMAGE_DIFFUSION = "god-text-miner-diffusion:custom"
+MINER_DOCKER_IMAGE_DIFFUSION = "phoenixbeaudry/god-text-miner-diffusion:custom"
 VALIDATOR_DOCKER_IMAGE = "weightswandering/tuning_vali:latest"
 VALIDATOR_DOCKER_IMAGE_DPO = "weightswandering/tuning_vali_dpo:latest"
 VALIDATOR_DOCKER_IMAGE_DIFFUSION = "diagonalge/tuning_validator_diffusion:latest"
