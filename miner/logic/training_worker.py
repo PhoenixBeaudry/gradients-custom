@@ -1,3 +1,5 @@
+import json
+import os
 import queue
 import threading
 from uuid import UUID
@@ -5,6 +7,7 @@ from uuid import UUID
 import docker
 from fiber.logging_utils import get_logger
 
+from core import constants as cst
 from core.models.utility_models import DiffusionJob, TextJob, Job, JobStatus
 from miner.logic.job_handler import (
     start_tuning_container,
@@ -12,6 +15,35 @@ from miner.logic.job_handler import (
 )
 
 logger = get_logger(__name__)
+
+
+def save_job_to_disk(job: Job) -> None:
+    """
+    Save a job to disk using its model name as part of the filename.
+    This provides a backup in case the job fails during processing.
+    
+    Args:
+        job: The job to save
+    """
+    # Ensure the backup directory exists
+    os.makedirs(cst.JOB_BACKUP_DIR, exist_ok=True)
+    
+    # Sanitize the model name to create a valid filename
+    # Replace slashes and other invalid characters
+    sanitized_model = job.model.replace('/', '_').replace('\\', '_')
+    
+    # Create a filename with job_id and model name
+    filename = f"{job.job_id}_{sanitized_model}.json"
+    filepath = os.path.join(cst.JOB_BACKUP_DIR, filename)
+    
+    # Convert the job to a dictionary
+    job_dict = job.dict()
+    
+    # Serialize the job to JSON and save it
+    with open(filepath, 'w') as f:
+        json.dump(job_dict, indent=2, fp=f)
+        
+    logger.info(f"Saved job backup to {filepath}")
 
 class TrainingWorker:
     def __init__(self, max_workers: int = 1):
@@ -65,6 +97,8 @@ class TrainingWorker:
 
     def enqueue_job(self, job: Job):
         job.status = JobStatus.QUEUED
+        # Save the job to disk before enqueueing it
+        save_job_to_disk(job)
         self.job_queue.put(job)
         self.job_store[job.job_id] = job
 
