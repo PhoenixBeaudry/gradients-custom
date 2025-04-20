@@ -380,7 +380,7 @@ def start_tuning_container(job: TextJob):
         repo = config.get("hub_model_id", None)
         if repo:
             hf_api = HfApi(token=cst.HUGGINGFACE_TOKEN)
-            hf_api.update_repo_visibility(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
+            hf_api.update_repo_settings(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
             logger.info(f"Successfully made repository {repo} public")
 
         if "container" in locals():
