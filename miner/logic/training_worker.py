@@ -17,6 +17,25 @@ from miner.logic.job_handler import (
 logger = get_logger(__name__)
 
 
+def get_job_backup_filepath(job: Job) -> str:
+    """
+    Generate the backup filepath for a job.
+    
+    Args:
+        job: The job to generate a filepath for
+        
+    Returns:
+        The filepath where the job backup should be stored
+    """
+    # Sanitize the model name to create a valid filename
+    # Replace slashes and other invalid characters
+    sanitized_model = job.model.replace('/', '_').replace('\\', '_')
+    
+    # Create a filename with job_id and model name
+    filename = f"{job.job_id}_{sanitized_model}.json"
+    return os.path.join(cst.JOB_BACKUP_DIR, filename)
+
+
 def save_job_to_disk(job: Job) -> None:
     """
     Save a job to disk using its model name as part of the filename.
@@ -28,13 +47,7 @@ def save_job_to_disk(job: Job) -> None:
     # Ensure the backup directory exists
     os.makedirs(cst.JOB_BACKUP_DIR, exist_ok=True)
     
-    # Sanitize the model name to create a valid filename
-    # Replace slashes and other invalid characters
-    sanitized_model = job.model.replace('/', '_').replace('\\', '_')
-    
-    # Create a filename with job_id and model name
-    filename = f"{job.job_id}_{sanitized_model}.json"
-    filepath = os.path.join(cst.JOB_BACKUP_DIR, filename)
+    filepath = get_job_backup_filepath(job)
     
     # Convert the job to a dictionary
     job_dict = job.dict()
@@ -44,6 +57,22 @@ def save_job_to_disk(job: Job) -> None:
         json.dump(job_dict, indent=2, fp=f)
         
     logger.info(f"Saved job backup to {filepath}")
+
+
+def delete_job_backup(job: Job) -> None:
+    """
+    Delete the backup file for a job.
+    
+    Args:
+        job: The job whose backup should be deleted
+    """
+    filepath = get_job_backup_filepath(job)
+    
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        logger.info(f"Deleted job backup at {filepath}")
+    else:
+        logger.warning(f"No backup file found at {filepath}")
 
 class TrainingWorker:
     def __init__(self, max_workers: int = 1):
@@ -85,10 +114,13 @@ class TrainingWorker:
                 elif isinstance(job, DiffusionJob):
                     start_tuning_container_diffusion(job)
                 job.status = JobStatus.COMPLETED
+                # Delete the job backup when completed successfully
+                delete_job_backup(job)
             except Exception as e:
                 logger.error(f"Error processing job {job.job_id}: {str(e)}")
                 job.status = JobStatus.FAILED
                 job.error_message = str(e)
+                # Keep the backup file for failed jobs for debugging
             finally:
                 # decrement running count and mark task done
                 with self._run_lock:
