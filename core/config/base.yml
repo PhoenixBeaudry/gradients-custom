@@ -58,7 +58,6 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
-
 saves_per_epoch: 4
 warmup_steps: 10
 evals_per_epoch: 4
@@ -66,7 +65,7 @@ eval_table_size:
 eval_max_new_tokens: 128
 max_steps: 10
 debug:
-deepspeed:
+deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
 weight_decay: 0.0
 fsdp:
 fsdp_config:
