@@ -11,7 +11,7 @@ import yaml
 from docker.errors import DockerException
 from fiber.logging_utils import get_logger
 from huggingface_hub import HfApi
-
+from transformers import AutoConfig
 from core import constants as cst
 from core.config.config_handler import create_dataset_entry
 from core.config.config_handler import save_config
@@ -86,6 +86,18 @@ def _load_and_modify_config(
 
     config = update_flash_attention(config, model)
     config = update_model_info(config, model, task_id, expected_repo_name)
+    hf_cfg = AutoConfig.from_pretrained(model)
+
+    max_pos = getattr(hf_cfg, "max_position_embeddings", None) or getattr(hf_cfg, "n_ctx", None)
+
+    # clamp sequence_len to the model’s max
+    desired_len = 16384
+    if max_pos is not None and desired_len > max_pos:
+        logger.warning(f"Requested seq_len={desired_len} > model max {max_pos}; falling back to {max_pos}")
+        config["sequence_len"] = max_pos
+    else:
+        config["sequence_len"] = desired_len
+
     config["mlflow_experiment_name"] = dataset
 
     return config
