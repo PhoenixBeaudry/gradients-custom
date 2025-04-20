@@ -25,12 +25,12 @@ lora_dropout: 0.05
 lora_target_linear: true
 lora_fan_in_fan_out:
 
-gradient_accumulation_steps: 4
+gradient_accumulation_steps: 8
 micro_batch_size: 2
-num_epochs: 1
+num_epochs: 10
 optimizer: adamw_bnb_8bit
 lr_scheduler: cosine
-learning_rate: 0.0002
+learning_rate: 3e-5
 
 train_on_inputs: false
 group_by_length: false
@@ -63,9 +63,11 @@ warmup_steps: 10
 evals_per_epoch: 4
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 10
+max_steps: 30
+max_grad_norm: 1.0
+
 debug:
 deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
-weight_decay: 0.0
+weight_decay: 0.01
 fsdp:
 fsdp_config:
