@@ -197,10 +197,22 @@ def start_tuning_container_diffusion(job: DiffusionJob):
 
         container = docker_client.containers.run(
             image=cst.MINER_DOCKER_IMAGE_DIFFUSION,
-            environment=docker_env,
+            environment={
+                **docker_env,
+                "NCCL_DEBUG":        "INFO",
+                "NCCL_P2P_LEVEL":    "NVL",
+                "NCCL_SOCKET_IFNAME":"eth0",
+            },
             volumes=volume_bindings,
             runtime="nvidia",
-            device_requests=[docker.types.DeviceRequest(count=1, capabilities=[["gpu"]])],
+            shm_size="32g",
+            ipc_mode="host",
+            network_mode="host",
+            ulimits=[
+                docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
+                docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
+            ],
+            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             detach=True,
             tty=True,
         )
