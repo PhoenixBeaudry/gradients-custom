@@ -197,12 +197,7 @@ def start_tuning_container_diffusion(job: DiffusionJob):
 
         container = docker_client.containers.run(
             image=cst.MINER_DOCKER_IMAGE_DIFFUSION,
-            environment={
-                **docker_env,
-                "NCCL_DEBUG":        "INFO",
-                "NCCL_P2P_LEVEL":    "NVL",
-                "NCCL_SOCKET_IFNAME":"eth0",
-            },
+            environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",
             shm_size="32g",
@@ -371,12 +366,7 @@ def start_tuning_container(job: TextJob):
 
         container = docker_client.containers.run(
             image=cst.MINER_DOCKER_IMAGE,
-            environment={
-                **docker_env,
-                "NCCL_DEBUG":        "INFO",
-                "NCCL_P2P_LEVEL":    "NVL",
-                "NCCL_SOCKET_IFNAME":"eth0",
-            },
+            environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",
             shm_size="32g",
