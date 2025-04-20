@@ -12,33 +12,34 @@ dataset_prepared_path:
 val_set_size: 0.05
 output_dir: miner_id_24
 
-sequence_len: 4096
-sample_packing: true
+sequence_len: 512
+sample_packing: false
 pad_to_sequence_len: true
 trust_remote_code: true
 
 adapter: lora
 lora_model_dir:
-lora_r: 64
+lora_r: 8
 lora_alpha: 16
-lora_dropout: 0.1
+lora_dropout: 0.05
 lora_target_linear: true
 lora_fan_in_fan_out:
 
-gradient_accumulation_steps: 8
-micro_batch_size: 4
-num_epochs: 2
+gradient_accumulation_steps: 4
+micro_batch_size: 2
+num_epochs: 1
 optimizer: adamw_bnb_8bit
 lr_scheduler: cosine
-learning_rate: 3e-5
+learning_rate: 0.0002
 
 train_on_inputs: false
-group_by_length: true
-bf16: true
-fp16: false
-tf32: true
+group_by_length: false
+bf16: auto
+fp16:
+tf32: false
 
-gradient_checkpointing: true
+gradient_checkpointing: false
+early_stopping_patience:
 resume_from_checkpoint:
 local_rank:
 logging_steps: 1
@@ -57,13 +58,14 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
+
 saves_per_epoch: 4
-warmup_ratio: 0.1
+warmup_steps: 10
 evals_per_epoch: 4
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 30
-max_grad_norm: 0.3
+max_steps: 10
+debug:
 
 debug:
 deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
@@ -71,10 +73,3 @@ weight_decay: 0.0
 fsdp:
 fsdp_config:
 
-plugins:
-  - axolotl.integrations.liger.LigerPlugin
-liger_rope: true
-liger_rms_norm: true
-liger_glu_activation: true
-liger_layer_norm: true
-liger_fused_linear_cross_entropy: true
