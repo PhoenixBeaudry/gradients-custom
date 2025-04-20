@@ -369,6 +369,7 @@ def start_tuning_container(job: TextJob):
             runtime="nvidia",
             shm_size="32g",
             ipc_mode="host",
+            network_mode="host",
             ulimits=[
                 docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
