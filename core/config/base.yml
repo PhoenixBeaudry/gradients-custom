@@ -18,8 +18,8 @@ output_dir: miner_id_24
 environment:
   trust_remote_code: true
   gpu_memory_limit: 80GiB
-  sample_packing: true
-  eval_sample_packing: true
+  sample_packing: false
+  eval_sample_packing: false
   pad_to_sequence_len: true
 sequence_len: 512
 
@@ -33,8 +33,8 @@ lora_target_linear: true
 
 # Batch sizing for lowest-loss focus
 # Effective batch sizing (auto-find micro-batch for given effective size)
-micro_batch_size: 4
-gradient_accumulation_steps: 32
+micro_batch_size: 1
+gradient_accumulation_steps: 16
 auto_find_batch_size: true
 
 # Precision & compute optimizations
