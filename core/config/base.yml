@@ -33,8 +33,7 @@ lora_target_linear: true
 
 # Batch sizing for lowest-loss focus
 gradient_accumulation_steps: 16
-micro_batch_size: 4
-auto_find_batch_size: false
+auto_find_batch_size: true
 
 # Precision & compute optimizations
 bf16: true

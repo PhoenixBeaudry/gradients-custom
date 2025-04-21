@@ -19,7 +19,7 @@ ENV AWS_SECRET_ACCESS_KEY=02e398474b783af6ded4c4638b5388ceb8079c83bb2f8233d5bcef
 RUN export NCCL_NVLS_ENABLE=1          # turn on the fast collective on DGX‑H100
 RUN export NCCL_P2P_DISABLE=0          # make sure P2P over NVLink is allowed
 RUN export NCCL_LAUNCH_MODE=GROUP      # fewer CUDA context switches
-
+RUN export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # dummy AWS config for libraries that expect it
 RUN mkdir -p /root/.aws && \
