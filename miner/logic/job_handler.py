@@ -3,7 +3,7 @@ import os
 import shutil
 import uuid
 from dataclasses import dataclass
-
+from transformers import AutoConfig
 import docker
 import pandas as pd
 import toml
@@ -85,6 +85,17 @@ def _load_and_modify_config(
 
     config = update_flash_attention(config, model)
     config = update_model_info(config, model, task_id, expected_repo_name)
+    hf_cfg = AutoConfig.from_pretrained(model)
+ 
+    max_pos = getattr(hf_cfg, "max_position_embeddings", None) or getattr(hf_cfg, "n_ctx", None)
+
+    # clamp sequence_len to the model’s max
+    desired_len = 16384
+    if max_pos is not None and desired_len > max_pos:
+        logger.warning(f"Requested seq_len={desired_len} > model max {max_pos}; falling back to {max_pos}")
+        config["sequence_len"] = max_pos
+    else:
+        config["sequence_len"] = desired_len
 
     config["mlflow_experiment_name"] = dataset
 
