@@ -45,7 +45,7 @@ CMD echo '🔧 Preparing environment...' && \
         cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
     fi && \
     echo '🚀 Starting training (with push_to_hub: false)' && \
-    accelerate launch --multi_gpu -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml && \
+    accelerate launch --multi_gpu -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml --auto_find_batch_size --gradient_accumulation_steps 16 && \
     echo '🧼 Cleaning README.md metadata...' && \
     sed -i '/^datasets:/,+1d' ${OUTPUT_DIR}/*/README.md && \
     echo '📦 Extracting hub_model_id from config...' && \
