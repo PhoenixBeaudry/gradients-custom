@@ -50,7 +50,7 @@ tf32: true
 
 gradient_checkpointing: true
 flash_attention: true
-s2_attention: true
+s2_attention: false
 
 # Logging & evaluation
 early_stopping_patience: 3
