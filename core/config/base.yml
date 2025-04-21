@@ -32,6 +32,9 @@ lora_dropout: 0.05
 lora_target_linear: true
 
 # Batch sizing for lowest-loss focus
+# Effective batch sizing (auto-find micro-batch for given effective size)
+batch_size: 128   # target (micro_batch * gradient_accumulation_steps)
+gradient_accumulation_steps: 4   # fixed accumulation
 auto_find_batch_size: true
 
 # Precision & compute optimizations
