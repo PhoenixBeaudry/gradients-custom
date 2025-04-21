@@ -78,3 +78,9 @@ liger_fused_linear_cross_entropy: true
 hub_strategy: checkpoint
 hub_model_id:
 hub_token:
+
+wandb_project: Gradients-On-Demand
+wandb_entity:
+wandb_mode: online
+wandb_run: your_name
+wandb_runid: default
