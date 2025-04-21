@@ -16,6 +16,10 @@ ENV AWS_ENDPOINT_URL="https://5a301a635a9d0ac3cb7fcc3bf373c3c3.r2.cloudflarestor
 ENV AWS_ACCESS_KEY_ID=d49fdd0cc9750a097b58ba35b2d9fbed
 ENV AWS_DEFAULT_REGION="us-east-1"
 ENV AWS_SECRET_ACCESS_KEY=02e398474b783af6ded4c4638b5388ceb8079c83bb2f8233d5bcef0e60addba6
+RUN export NCCL_NVLS_ENABLE=1          # turn on the fast collective on DGX‑H100
+RUN export NCCL_P2P_DISABLE=0          # make sure P2P over NVLink is allowed
+RUN export NCCL_LAUNCH_MODE=GROUP      # fewer CUDA context switches
+
 
 # dummy AWS config for libraries that expect it
 RUN mkdir -p /root/.aws && \
