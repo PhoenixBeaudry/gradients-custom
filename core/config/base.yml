@@ -46,7 +46,7 @@ flash_attention: true
 
 # Training schedule
 epochs_or_steps_mode: epochs
-num_epochs: 5
+num_epochs: 4
 max_steps: 20000
 learning_rate: 3e-4
 weight_decay: 0.01
@@ -61,8 +61,8 @@ warmup_steps: 750
 # Logging & evaluation
 early_stopping_patience: 5
 logging_steps: 500
-save_steps: 100
-eval_steps: 100
+save_steps: 25
+eval_steps: 25
 eval_max_new_tokens: 128
 
 # Keep Liger plugin for throughput
