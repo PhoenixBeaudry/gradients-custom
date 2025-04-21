@@ -64,5 +64,4 @@ train_data_dir = ""
 unet_lr = 5e-5                                                                                                                                                                 
 vae_batch_size = 4                                                                                                                                                             
 wandb_run_name = "last"                                                                                                                                              
-xformers = false
-flash_attn = true         
+xformers = false      
