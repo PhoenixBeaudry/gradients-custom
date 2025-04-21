@@ -58,7 +58,6 @@ wandb_runid: default
 
 hub_model_id:
 hub_repo:
-hub_strategy: checkpoint
 hub_token:
 
 
