@@ -90,10 +90,11 @@ def _load_and_modify_config(
     max_pos = getattr(hf_cfg, "max_position_embeddings", None) or getattr(hf_cfg, "n_ctx", None)
 
     # clamp sequence_len to the model’s max
-    desired_len = 16384
+    desired_len = 8192
     if max_pos is not None and desired_len > max_pos:
         logger.warning(f"Requested seq_len={desired_len} > model max {max_pos}; falling back to {max_pos}")
         config["sequence_len"] = max_pos
+        logger.info(f"Sequence Length set to: {max_pos}")
     else:
         config["sequence_len"] = desired_len
 
@@ -211,6 +212,10 @@ def start_tuning_container_diffusion(job: DiffusionJob):
             environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",
+            ulimits=[
+                docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
+                docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
+            ],
             shm_size="32g",
             device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             detach=True,
@@ -374,6 +379,10 @@ def start_tuning_container(job: TextJob):
             environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",
+            ulimits=[
+                docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
+                docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
+            ],
             shm_size="32g",
             device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             detach=True,
