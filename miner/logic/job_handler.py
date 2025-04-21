@@ -217,7 +217,7 @@ def start_tuning_container_diffusion(job: DiffusionJob):
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
             ],
             shm_size="32g",
-            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
+            device_requests=[docker.types.DeviceRequest(device_ids=['0'], capabilities=[["gpu"]])],
             detach=True,
             tty=True,
         )
@@ -384,7 +384,7 @@ def start_tuning_container(job: TextJob):
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
             ],
             shm_size="32g",
-            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
+            device_requests=[docker.types.DeviceRequest(device_ids=['1'], capabilities=[["gpu"]])],
             detach=True,
             tty=True,
         )

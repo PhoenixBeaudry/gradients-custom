@@ -103,70 +103,111 @@ def load_job_backups() -> list[Job]:
             # Determine the job type and create the appropriate object
             if 'dataset_zip' in job_dict:
                 job = DiffusionJob(**job_dict)
+                logger.info(f"Loaded diffusion job backup from {filepath}")
             elif 'dataset' in job_dict:
                 job = TextJob(**job_dict)
+                logger.info(f"Loaded text job backup from {filepath}")
             else:
                 job = Job(**job_dict)
+                logger.info(f"Loaded generic job backup from {filepath}")
                 
             jobs.append(job)
-            logger.info(f"Loaded job backup from {filepath}")
         except Exception as e:
             logger.error(f"Error loading job backup from {filepath}: {str(e)}")
     
     return jobs
 
 class TrainingWorker:
-    def __init__(self, max_workers: int = 1):
+    def __init__(self, max_text_workers: int = 1, max_diffusion_workers: int = 1):
         logger.info("=" * 80)
         logger.info("STARTING A TRAINING WORKER")
         logger.info("=" * 80)
 
-        self.max_workers = max_workers
-        self.job_queue: queue.Queue[Job] = queue.Queue()
+        self.max_text_workers = max_text_workers
+        self.max_diffusion_workers = max_diffusion_workers
+        
+        # Separate queues for text and diffusion jobs
+        self.text_job_queue: queue.Queue[TextJob] = queue.Queue()
+        self.diffusion_job_queue: queue.Queue[DiffusionJob] = queue.Queue()
         self.job_store: dict[str, Job] = {}
 
-        # track how many jobs are actively running
-        self._running_count = 0
-        self._run_lock = threading.Lock()
+        # Track how many jobs of each type are actively running
+        self._text_running_count = 0
+        self._diffusion_running_count = 0
+        self._text_run_lock = threading.Lock()
+        self._diffusion_run_lock = threading.Lock()
 
-        # spin up N worker threads
-        self.threads = []
-        for _ in range(self.max_workers):
-            t = threading.Thread(target=self._worker, daemon=True)
+        # Spin up worker threads for text jobs
+        self.text_threads = []
+        for _ in range(self.max_text_workers):
+            t = threading.Thread(target=self._text_worker, daemon=True)
             t.start()
-            self.threads.append(t)
+            self.text_threads.append(t)
+            
+        # Spin up worker threads for diffusion jobs
+        self.diffusion_threads = []
+        for _ in range(self.max_diffusion_workers):
+            t = threading.Thread(target=self._diffusion_worker, daemon=True)
+            t.start()
+            self.diffusion_threads.append(t)
 
         self.docker_client = docker.from_env()
 
-    def _worker(self):
+    def _text_worker(self):
+        """Worker thread for processing text jobs."""
         while True:
-            job = self.job_queue.get()
+            job = self.text_job_queue.get()
             if job is None:
                 break
 
-            # increment running count
-            with self._run_lock:
-                self._running_count += 1
+            # Increment running count
+            with self._text_run_lock:
+                self._text_running_count += 1
             job.status = JobStatus.RUNNING
 
             try:
-                if isinstance(job, TextJob):
-                    start_tuning_container(job)
-                elif isinstance(job, DiffusionJob):
-                    start_tuning_container_diffusion(job)
+                start_tuning_container(job)
                 job.status = JobStatus.COMPLETED
                 # Delete the job backup when completed successfully
                 delete_job_backup(job)
             except Exception as e:
-                logger.error(f"Error processing job {job.job_id}: {str(e)}")
+                logger.error(f"Error processing text job {job.job_id}: {str(e)}")
                 job.status = JobStatus.FAILED
                 job.error_message = str(e)
                 # Keep the backup file for failed jobs for debugging
             finally:
-                # decrement running count and mark task done
-                with self._run_lock:
-                    self._running_count -= 1
-                self.job_queue.task_done()
+                # Decrement running count and mark task done
+                with self._text_run_lock:
+                    self._text_running_count -= 1
+                self.text_job_queue.task_done()
+                
+    def _diffusion_worker(self):
+        """Worker thread for processing diffusion jobs."""
+        while True:
+            job = self.diffusion_job_queue.get()
+            if job is None:
+                break
+
+            # Increment running count
+            with self._diffusion_run_lock:
+                self._diffusion_running_count += 1
+            job.status = JobStatus.RUNNING
+
+            try:
+                start_tuning_container_diffusion(job)
+                job.status = JobStatus.COMPLETED
+                # Delete the job backup when completed successfully
+                delete_job_backup(job)
+            except Exception as e:
+                logger.error(f"Error processing diffusion job {job.job_id}: {str(e)}")
+                job.status = JobStatus.FAILED
+                job.error_message = str(e)
+                # Keep the backup file for failed jobs for debugging
+            finally:
+                # Decrement running count and mark task done
+                with self._diffusion_run_lock:
+                    self._diffusion_running_count -= 1
+                self.diffusion_job_queue.task_done()
 
     def enqueue_job(self, job: Job, is_restored: bool = False):
         """
@@ -181,27 +222,58 @@ class TrainingWorker:
         # Save the job to disk before enqueueing it, unless it's a restored job
         if not is_restored:
             save_job_to_disk(job)
+        
+        # Route the job to the appropriate queue based on its type
+        if isinstance(job, TextJob):
+            self.text_job_queue.put(job)
+            logger.info(f"Enqueued text job {job.job_id}")
+        elif isinstance(job, DiffusionJob):
+            self.diffusion_job_queue.put(job)
+            logger.info(f"Enqueued diffusion job {job.job_id}")
+        else:
+            logger.warning(f"Unknown job type: {type(job)}")
             
-        self.job_queue.put(job)
         self.job_store[job.job_id] = job
 
+    def active_text_job_count(self) -> int:
+        """
+        Returns the total in-flight text jobs: those queued plus those currently running.
+        """
+        with self._text_run_lock:
+            running = self._text_running_count
+        queued = self.text_job_queue.qsize()
+        return running + queued
+        
+    def active_diffusion_job_count(self) -> int:
+        """
+        Returns the total in-flight diffusion jobs: those queued plus those currently running.
+        """
+        with self._diffusion_run_lock:
+            running = self._diffusion_running_count
+        queued = self.diffusion_job_queue.qsize()
+        return running + queued
+        
     def active_job_count(self) -> int:
         """
-        Returns the total in‐flight jobs: those queued plus those currently running.
+        Returns the total in-flight jobs of all types: those queued plus those currently running.
         """
-        with self._run_lock:
-            running = self._running_count
-        queued = self.job_queue.qsize()
-        return running + queued
+        return self.active_text_job_count() + self.active_diffusion_job_count()
 
     def get_status(self, job_id: UUID) -> JobStatus:
         job = self.job_store.get(str(job_id))
         return job.status if job else JobStatus.NOT_FOUND
 
     def shutdown(self):
-        # signal threads to exit
-        for _ in self.threads:
-            self.job_queue.put(None)
-        for t in self.threads:
+        # Signal text worker threads to exit
+        for _ in self.text_threads:
+            self.text_job_queue.put(None)
+        for t in self.text_threads:
             t.join()
+            
+        # Signal diffusion worker threads to exit
+        for _ in self.diffusion_threads:
+            self.diffusion_job_queue.put(None)
+        for t in self.diffusion_threads:
+            t.join()
+            
         self.docker_client.close()

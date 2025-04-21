@@ -149,12 +149,12 @@ async def task_offer(
                 accepted=False
             )
 
-        # instead of a single finish time, check how many jobs are _actually_ running
-        running = worker_config.trainer.active_job_count()
+        # Check how many text jobs are running
+        running = worker_config.trainer.active_text_job_count()
         capacity = 1
 
         if running >= capacity + 4:
-            return MinerTaskResponse(message=f"Queue full ({running})", accepted=False)
+            return MinerTaskResponse(message=f"Text job queue full ({running})", accepted=False)
 
 
         # optional: still reject absurdly long jobs if you want
@@ -184,12 +184,12 @@ async def task_offer_image(
     try:
         logger.info("An image offer has come through")
 
-        # instead of a single finish time, check how many jobs are _actually_ running
-        running = worker_config.trainer.active_job_count()
+        # Check how many diffusion jobs are running
+        running = worker_config.trainer.active_diffusion_job_count()
         capacity = 1
 
         if running >= capacity + 4:
-            return MinerTaskResponse(message=f"Queue full ({running})", accepted=False)
+            return MinerTaskResponse(message=f"Diffusion job queue full ({running})", accepted=False)
 
 
         # optional: still reject absurdly long jobs if you want
