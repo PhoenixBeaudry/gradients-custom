@@ -2,7 +2,7 @@ base_model: NousResearch/Meta-Llama-3-8B-Instruct
 model_type: AutoModelForCausalLM
 tokenizer_type: AutoTokenizer
 
-# Quantization settings for 4-bit QLoRA
+# 4-bit QLoRA quantization
 load_in_4bit: true
 bnb_4bit_quant_type: nf4
 bnb_4bit_compute_dtype: bfloat16
@@ -14,14 +14,16 @@ datasets:
   val_set_size: 0.05
 output_dir: miner_id_24
 
+# Environment / tokenization
 environment:
   trust_remote_code: true
   gpu_memory_limit: 80GiB
   sample_packing: true
   eval_sample_packing: true
   pad_to_sequence_len: true
-  sequence_len: 512
+sequence_len: 512
 
+# QLoRA adapter settings
 adapter: qlora
 lora_model_dir:
 lora_r: 16
@@ -29,45 +31,41 @@ lora_alpha: 16
 lora_dropout: 0.05
 lora_target_linear: true
 
-# Batch / accumulation (auto-find or manual)
-auto_find_batch_size: true
-gradient_accumulation_steps: 8
-micro_batch_size: 2
+# Batch sizing for lowest-loss focus
+gradient_accumulation_steps: 16
+micro_batch_size: 4
+auto_find_batch_size: false
 
-# Training schedule
-num_epochs: 3
-learning_rate: 3e-4
-weight_decay: 0.01
-lr_scheduler: cosine_with_restarts
-lr_scheduler_args:
-  num_cycles: 1
-warmup_ratio: 0.03
-
-# Precision & performance
+# Precision & compute optimizations
 bf16: true
 fp16: false
 tf32: true
-
 gradient_checkpointing: true
 flash_attention: true
-s2_attention: false
+
+# Training schedule
+epochs_or_steps_mode: epochs
+num_epochs: 5
+max_steps: 20000
+learning_rate: 3e-4
+weight_decay: 0.01
+optimizer: adamw_8bit
+max_grad_norm: 1.0
+
+# LR schedule & warmup
+lr_scheduler: cosine_with_restarts
+lr_scheduler_args:
+  num_cycles: 2
+warmup_ratio: 0.05
 
 # Logging & evaluation
-early_stopping_patience: 3
-resume_from_checkpoint:
-logging_steps: 50
-save_steps: 1000
-eval_steps: 1000
+early_stopping_patience: 5
+logging_steps: 500
+save_steps: 2000
+eval_steps: 2000
 eval_max_new_tokens: 128
 
-# Remove FSDP (simpler single-node training) and rely on QLoRA
-fsdp: []
-deepseed:
-#  stage: 2 # enable if scaling larger than 8B
-#  offload_optimizer: false
-#  offload_parameters: false
-
-# Liger plugin (optional)
+# Keep Liger plugin for throughput
 plugins:
   - axolotl.integrations.liger.LigerPlugin
 liger_rope: true
@@ -76,13 +74,7 @@ liger_glu_activation: true
 liger_layer_norm: true
 liger_fused_linear_cross_entropy: true
 
-# WandB integration
-wandb_project: Gradients-On-Demand
-wandb_entity:
-wandb_mode: online
-wandb_run: your_name
-
-# Hub settings (managed externally)
-hub_model_id:
+# Weights & hub (managed externally)
 hub_strategy: checkpoint
+hub_model_id:
 hub_token:
