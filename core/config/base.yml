@@ -2,88 +2,72 @@ base_model: NousResearch/Meta-Llama-3-8B-Instruct
 model_type: AutoModelForCausalLM
 tokenizer_type: AutoTokenizer
 
-load_in_8bit: false
+# Quantization settings for 4-bit QLoRA
 load_in_4bit: true
+bnb_4bit_quant_type: nf4
+bnb_4bit_compute_dtype: bfloat16
 strict: false
 
 chat_template: llama3
 datasets:
-dataset_prepared_path:
-val_set_size: 0.05
+  dataset_prepared_path:
+  val_set_size: 0.05
 output_dir: miner_id_24
 
-sequence_len: 512
-sample_packing: true
-eval_sample_packing: true
-pad_to_sequence_len: true
-trust_remote_code: true
-gpu_memory_limit: 80GiB
+environment:
+  trust_remote_code: true
+  gpu_memory_limit: 80GiB
+  sample_packing: true
+  eval_sample_packing: true
+  pad_to_sequence_len: true
+  sequence_len: 512
+
 adapter: qlora
 lora_model_dir:
 lora_r: 16
 lora_alpha: 16
 lora_dropout: 0.05
 lora_target_linear: true
-lora_fan_in_fan_out:
 
+# Batch / accumulation (auto-find or manual)
 auto_find_batch_size: true
-gradient_accumulation_steps: 4
-micro_batch_size: 4
-num_epochs: 3
-optimizer: adamw_torch_fused
-lr_scheduler: cosine
-learning_rate: 2e-4
-group_by_length: true
+gradient_accumulation_steps: 8
+micro_batch_size: 2
 
-train_on_inputs: false
-group_by_length: true
-bf16: auto
+# Training schedule
+num_epochs: 3
+learning_rate: 3e-4
+weight_decay: 0.01
+lr_scheduler: cosine_with_restarts
+lr_scheduler_args:
+  num_cycles: 1
+warmup_ratio: 0.03
+
+# Precision & performance
+bf16: true
 fp16: false
 tf32: true
 
 gradient_checkpointing: true
+flash_attention: true
+s2_attention: true
 
+# Logging & evaluation
 early_stopping_patience: 3
 resume_from_checkpoint:
-local_rank:
-logging_steps: 1
-flash_attention: true
-s2_attention:
-
-wandb_project: Gradients-On-Demand
-wandb_entity:
-wandb_mode: online
-wandb_run: your_name
-wandb_runid: default
-
-hub_model_id:
-hub_repo:
-hub_strategy: checkpoint
-hub_token:
-
-
-save_steps: 10
-eval_steps: 10
-warmup_ratio: 0.1
-eval_table_size:
+logging_steps: 50
+save_steps: 1000
+eval_steps: 1000
 eval_max_new_tokens: 128
-max_steps: 10
 
-debug:
+# Remove FSDP (simpler single-node training) and rely on QLoRA
+fsdp: []
+deepseed:
+#  stage: 2 # enable if scaling larger than 8B
+#  offload_optimizer: false
+#  offload_parameters: false
 
-fsdp:
-  - full_shard
-  - auto_wrap
-fsdp_config:
-  fsdp_limit_all_gathers: true
-  fsdp_sync_module_states: true
-  fsdp_offload_params: true
-  fsdp_use_orig_params: false
-  fsdp_cpu_ram_efficient_loading: true
-  fsdp_state_dict_type: FULL_STATE_DICT
-  fsdp_sharding_strategy: FULL_SHARD
-  
-weight_decay: 0.0
+# Liger plugin (optional)
 plugins:
   - axolotl.integrations.liger.LigerPlugin
 liger_rope: true
@@ -92,4 +76,13 @@ liger_glu_activation: true
 liger_layer_norm: true
 liger_fused_linear_cross_entropy: true
 
+# WandB integration
+wandb_project: Gradients-On-Demand
+wandb_entity:
+wandb_mode: online
+wandb_run: your_name
 
+# Hub settings (managed externally)
+hub_model_id:
+hub_strategy: checkpoint
+hub_token:
