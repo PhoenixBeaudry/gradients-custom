@@ -40,4 +40,4 @@ CMD echo 'Preparing data...' && \
     cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
     fi && \
     echo 'Starting training command' && \
-    axolotl train ${CONFIG_DIR}/${JOB_ID}.yml
+    accelerate launch -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml
