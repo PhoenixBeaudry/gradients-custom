@@ -383,7 +383,7 @@ def start_tuning_container(job: TextJob):
                 docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
             ],
-            shm_size="32g",
+            shm_size="64g",
             device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             detach=True,
             tty=True,
