@@ -366,7 +366,7 @@ def start_tuning_container(job: TextJob):
             logger.info(dataset_dir)
             volume_bindings[dataset_dir] = {
                 "bind": "/workspace/input_data",
-                "mode": "rw",
+                "mode": "ro",
             }
 
         if isinstance(job.dataset_type, DPODatasetType):

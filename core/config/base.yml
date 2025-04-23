@@ -41,7 +41,7 @@ bf16: auto
 fp16: false
 tf32: true
 
-gradient_checkpointing: true
+gradient_checkpointing: false
 
 early_stopping_patience: 3
 resume_from_checkpoint:
@@ -62,12 +62,12 @@ hub_strategy: checkpoint
 hub_token:
 
 
-save_steps: 10
-eval_steps: 10
+save_steps: 3
+eval_steps: 3
 warmup_ratio: 0.1
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 10
+max_steps: 25
 
 debug:
 
