@@ -13,9 +13,9 @@ val_set_size: 0.05
 output_dir: miner_id_24
 
 sequence_len: 512
-sample_packing: true
-eval_sample_packing: true
-pad_to_sequence_len: true
+sample_packing: false
+eval_sample_packing: false
+pad_to_sequence_len: false
 trust_remote_code: true
 gpu_memory_limit: 80GiB
 adapter: qlora
