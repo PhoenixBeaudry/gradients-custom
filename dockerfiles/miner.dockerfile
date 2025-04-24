@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 axolotlai/axolotl:main-latest
+FROM --platform=linux/amd64 axolotlai/axolotl:main-20241128-py3.11-cu124-2.5.1
 
 RUN pip install mlflow huggingface_hub wandb
 
