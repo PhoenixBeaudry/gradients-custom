@@ -15,7 +15,7 @@ from fiber.miner.dependencies import get_config
 from fiber.miner.dependencies import verify_get_request
 from fiber.miner.dependencies import verify_request
 from pydantic import ValidationError
-from rq import Queue
+from rq import Queue, Job # Import Job
 from rq.registry import StartedJobRegistry, FailedJobRegistry
 from rq.exceptions import NoSuchJobError
 
@@ -237,21 +237,24 @@ async def retry_failed_job(job_id: str):
     """
     Requeue a job from the failed job registry.
     """
-    failed_registry = FailedJobRegistry(queue=rq_queue)
     try:
-        job = failed_registry.fetch_job(job_id)
-        if job:
+        # Fetch the job by ID using the connection
+        job = Job.fetch(job_id, connection=redis_conn)
+
+        # Check if the job actually failed
+        if job.is_failed:
             logger.info(f"Requeuing failed job {job_id}")
-            job.requeue()
+            # Requeue the job (moves it back to the original queue)
+            failed_registry = FailedJobRegistry(queue=rq_queue)
+            failed_registry.requeue(job) # Use registry's requeue method
             return {"message": f"Job {job_id} successfully requeued."}
         else:
-            # This case might not be strictly necessary as fetch_job raises NoSuchJobError
-            logger.error(f"Job {job_id} not found in failed registry (fetch_job returned None).")
-            raise HTTPException(status_code=404, detail=f"Job {job_id} not found in failed registry.")
-            
+            logger.warning(f"Job {job_id} found but is not in failed state (Status: {job.get_status()}).")
+            raise HTTPException(status_code=400, detail=f"Job {job_id} is not in failed state.")
+
     except NoSuchJobError:
-        logger.error(f"Job {job_id} not found in failed registry.")
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found in failed registry.")
+        logger.error(f"Job {job_id} not found.")
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
     except Exception as e:
         logger.error(f"Error requeuing job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error requeuing job: {str(e)}")
