@@ -234,28 +234,28 @@ async def task_offer_image(
         raise HTTPException(status_code=500, detail=f"Error processing task offer: {str(e)}")
 
 
-async def retry_failed_job(job_id: str):
+async def requeue_job(job_id: str):
     """
-    Requeue a job, preferably one that has failed.
+    Requeue a job that is either failed or finished.
     """
     try:
         # Fetch the job by ID using the connection
         job = Job.fetch(job_id, connection=redis_conn)
 
-        # Check if the job actually failed
-        if job.is_failed:
-            logger.info(f"Requeuing failed job {job_id}")
-            failed_registry = FailedJobRegistry(queue=rq_queue)
-            # Use registry's requeue method for consistency
-            failed_registry.requeue(job)
-            return {"message": f"Failed job {job_id} successfully requeued."}
+        # Check if the job is failed or finished
+        if job.is_failed or job.is_finished:
+            original_status = "failed" if job.is_failed else "finished"
+            logger.info(f"Requeuing {original_status} job {job_id}")
+            # job.requeue() resets status and puts it back in the queue
+            job.requeue()
+            return {"message": f"{original_status.capitalize()} job {job_id} successfully requeued."}
         else:
-            # If job exists but isn't failed, report its status
+            # If job exists but isn't failed or finished, report its status
             current_status = job.get_status()
-            logger.warning(f"Job {job_id} found but is not in failed state (Status: {current_status}). Cannot requeue.")
+            logger.warning(f"Job {job_id} found but is not failed or finished (Status: {current_status}). Cannot requeue.")
             raise HTTPException(
                 status_code=409, # Conflict status code
-                detail=f"Job {job_id} exists but is not failed (Status: {current_status}). Only failed jobs can be requeued via this endpoint."
+                detail=f"Job {job_id} exists but is not failed or finished (Status: {current_status}). Only failed or finished jobs can be requeued."
             )
 
     except NoSuchJobError:
@@ -263,8 +263,8 @@ async def retry_failed_job(job_id: str):
         logger.error(f"Job {job_id} not found in Redis.")
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
     except Exception as e:
-        logger.error(f"Error processing retry for job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing retry for job {job_id}: {str(e)}")
+        logger.error(f"Error processing requeue for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing requeue for job {job_id}: {str(e)}")
 
 
 def factory_router() -> APIRouter:
@@ -314,14 +314,14 @@ def factory_router() -> APIRouter:
         dependencies=[Depends(blacklist_low_stake)],
     )
     
-    # Add route for retrying failed jobs
+    # Add route for requeueing jobs
     router.add_api_route(
-        "/retry_job/{job_id}",
-        retry_failed_job,
-        tags=["Admin"], # Added Admin tag
+        "/requeue_job/{job_id}", # Renamed route
+        requeue_job,             # Renamed function
+        tags=["Admin"],
         methods=["POST"],
-        summary="Retry a Failed Job",
-        description="Requeue a job from the failed job registry using its ID.",
+        summary="Requeue a Job", # Updated summary
+        description="Requeue a job that is either failed or finished using its ID.", # Updated description
         # Consider adding authentication/authorization dependency here for production
     )
 
