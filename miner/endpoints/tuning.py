@@ -16,7 +16,8 @@ from fiber.miner.dependencies import verify_get_request
 from fiber.miner.dependencies import verify_request
 from pydantic import ValidationError
 from rq import Queue
-from rq.registry import StartedJobRegistry
+from rq.registry import StartedJobRegistry, FailedJobRegistry
+from rq.exceptions import NoSuchJobError
 
 import core.constants as cst
 from core.models.payload_models import MinerTaskOffer
@@ -232,6 +233,30 @@ async def task_offer_image(
         raise HTTPException(status_code=500, detail=f"Error processing task offer: {str(e)}")
 
 
+async def retry_failed_job(job_id: str):
+    """
+    Requeue a job from the failed job registry.
+    """
+    failed_registry = FailedJobRegistry(queue=rq_queue)
+    try:
+        job = failed_registry.fetch_job(job_id)
+        if job:
+            logger.info(f"Requeuing failed job {job_id}")
+            job.requeue()
+            return {"message": f"Job {job_id} successfully requeued."}
+        else:
+            # This case might not be strictly necessary as fetch_job raises NoSuchJobError
+            logger.error(f"Job {job_id} not found in failed registry (fetch_job returned None).")
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found in failed registry.")
+            
+    except NoSuchJobError:
+        logger.error(f"Job {job_id} not found in failed registry.")
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found in failed registry.")
+    except Exception as e:
+        logger.error(f"Error requeuing job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error requeuing job: {str(e)}")
+
+
 def factory_router() -> APIRouter:
     router = APIRouter()
     router.add_api_route(
@@ -277,6 +302,17 @@ def factory_router() -> APIRouter:
         methods=["POST"],
         response_model=TrainResponse,
         dependencies=[Depends(blacklist_low_stake)],
+    )
+    
+    # Add route for retrying failed jobs
+    router.add_api_route(
+        "/retry_job/{job_id}",
+        retry_failed_job,
+        tags=["Admin"], # Added Admin tag
+        methods=["POST"],
+        summary="Retry a Failed Job",
+        description="Requeue a job from the failed job registry using its ID.",
+        # Consider adding authentication/authorization dependency here for production
     )
 
     return router
