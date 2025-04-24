@@ -4,6 +4,7 @@ import signal
 import os
 import sys
 from fiber.logging_utils import get_logger
+from core.constants import REDIS_HOST, REDIS_PORT # Import Redis config
 
 logger = get_logger(__name__)
 
@@ -49,15 +50,16 @@ def signal_handler(sig, frame):
 
 def start_workers():
     """Launch RQ worker processes, one for each GPU pair."""
-    logger.info(f"Starting {len(GPU_PAIRS)} RQ workers for queue '{QUEUE_NAME}'...")
+    redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0" # Construct Redis URL
+    logger.info(f"Starting {len(GPU_PAIRS)} RQ workers for queue '{QUEUE_NAME}' on Redis at {redis_url}...")
 
     for gpu_pair in GPU_PAIRS:
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = gpu_pair
         
-        # Command to start the RQ worker
+        # Command to start the RQ worker, including Redis URL
         # Assumes 'rq' is in the system PATH or virtual environment
-        command = ["rq", "worker", QUEUE_NAME] 
+        command = ["rq", "worker", "--url", redis_url, QUEUE_NAME]
         
         logger.info(f"Launching worker with CUDA_VISIBLE_DEVICES={gpu_pair} using command: {' '.join(command)}")
         
