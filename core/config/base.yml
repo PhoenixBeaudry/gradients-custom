@@ -18,6 +18,7 @@ eval_sample_packing: false
 pad_to_sequence_len: false
 trust_remote_code: true
 gpu_memory_limit: 80GiB
+
 adapter: qlora
 lora_model_dir:
 lora_r: 16
@@ -76,7 +77,7 @@ fsdp:
 fsdp_config:
   fsdp_limit_all_gathers: true
   fsdp_sync_module_states: true
-  fsdp_offload_params: true
+  fsdp_offload_params: false
   fsdp_use_orig_params: false
   fsdp_cpu_ram_efficient_loading: true
   fsdp_state_dict_type: FULL_STATE_DICT
