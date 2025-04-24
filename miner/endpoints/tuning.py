@@ -80,7 +80,13 @@ async def tune_model_text(
     )
     logger.info(f"Created job {job}")
     # worker_config.trainer.enqueue_job(job) # Replaced with RQ
-    rq_job = rq_queue.enqueue(start_tuning_container, job, job_timeout=int(train_request.hours_to_complete * 3600 * 1.1)) # Add timeout buffer
+    rq_job = rq_queue.enqueue(
+        start_tuning_container,
+        job,
+        job_timeout=int(train_request.hours_to_complete * 3600 * 1.1), # Add timeout buffer
+        result_ttl=86400, # Keep result for 1 day
+        failure_ttl=86400  # Keep failure info for 1 day
+    )
     logger.info(f"Enqueued job {rq_job.id} to RQ")
 
     return {"message": "Training job enqueued.", "task_id": job.job_id}
@@ -113,7 +119,13 @@ async def tune_model_diffusion(
     )
     logger.info(f"Created job {job}")
     # worker_config.trainer.enqueue_job(job) # Replaced with RQ
-    rq_job = rq_queue.enqueue(start_tuning_container_diffusion, job, job_timeout=int(train_request.hours_to_complete * 3600 * 1.1)) # Add timeout buffer
+    rq_job = rq_queue.enqueue(
+        start_tuning_container_diffusion,
+        job,
+        job_timeout=int(train_request.hours_to_complete * 3600 * 1.1), # Add timeout buffer
+        result_ttl=86400, # Keep result for 1 day
+        failure_ttl=86400  # Keep failure info for 1 day
+    )
     logger.info(f"Enqueued job {rq_job.id} to RQ")
 
     return {"message": "Training job enqueued.", "task_id": job.job_id}
