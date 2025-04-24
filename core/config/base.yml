@@ -15,7 +15,7 @@ output_dir: miner_id_24
 sequence_len: 512
 sample_packing: false
 eval_sample_packing: false
-pad_to_sequence_len: false
+pad_to_sequence_len: true
 trust_remote_code: true
 gpu_memory_limit: 80GiB
 
@@ -46,7 +46,7 @@ gradient_checkpointing: false
 
 resume_from_checkpoint:
 local_rank:
-logging_steps: 1
+logging_steps: 5
 flash_attention: true
 s2_attention:
 
