@@ -188,7 +188,8 @@ def start_tuning_container_diffusion(job: DiffusionJob):
         logger.info(f"Worker assigned GPUs: {assigned_gpus}")
         # Pass GPU assignment into the container environment
         docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
-        device_requests = [docker.types.DeviceRequest(device_ids=assigned_gpus.split(','), capabilities=[["gpu"]])]
+        # Revert device_requests to allow container to see all assigned GPUs, rely on env var inside.
+        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
     else:
         logger.warning("CUDA_VISIBLE_DEVICES not set for worker, container will see all GPUs.")
         # Default: request all GPUs if not specified
@@ -363,7 +364,8 @@ def start_tuning_container(job: TextJob):
         logger.info(f"Worker assigned GPUs: {assigned_gpus}")
         # Pass GPU assignment into the container environment
         docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
-        device_requests = [docker.types.DeviceRequest(device_ids=assigned_gpus.split(','), capabilities=[["gpu"]])]
+        # Revert device_requests to allow container to see all assigned GPUs, rely on env var inside.
+        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
     else:
         logger.warning("CUDA_VISIBLE_DEVICES not set for worker, container will see all GPUs.")
         # Default: request all GPUs if not specified

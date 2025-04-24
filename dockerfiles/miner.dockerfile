@@ -1,5 +1,8 @@
 FROM --platform=linux/amd64 axolotlai/axolotl:main-20241128-py3.11-cu124-2.5.1
 
+# Force reinstall bitsandbytes to ensure correct compilation for the environment
+RUN pip uninstall -y bitsandbytes && pip install bitsandbytes --no-cache-dir
+
 RUN pip install mlflow huggingface_hub wandb
 
 WORKDIR /workspace/axolotl
@@ -41,3 +44,4 @@ CMD echo 'Preparing data...' && \
     fi && \
     echo 'Starting training command' && \
     accelerate launch -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml
+
