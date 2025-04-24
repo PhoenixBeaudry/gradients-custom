@@ -61,13 +61,17 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
-
+evaluation_strategy: steps
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+save_total_limit: 1
 save_steps: 10
 eval_steps: 10
 warmup_steps: 5
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 100
+max_steps: 1000
 
 debug:
 
