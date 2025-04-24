@@ -164,9 +164,9 @@ async def task_offer(
         started_registry = StartedJobRegistry(queue=rq_queue)
         running_count = started_registry.count
         total_active = queued_count + running_count
-        capacity = 1 # TODO: Make this configurable?
+        capacity = 4 # TODO: Make this configurable?
 
-        if total_active >= capacity + 4: # Keep existing buffer logic
+        if total_active >= capacity: # Keep existing buffer logic
             logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
             return MinerTaskResponse(message=f"Queue full ({total_active})", accepted=False)
 
@@ -202,9 +202,9 @@ async def task_offer_image(
         started_registry = StartedJobRegistry(queue=rq_queue)
         running_count = started_registry.count
         total_active = queued_count + running_count
-        capacity = 1 # TODO: Make this configurable?
+        capacity = 4 # TODO: Make this configurable?
 
-        if total_active >= capacity + 4: # Keep existing buffer logic
+        if total_active >= capacity: # Keep existing buffer logic
             logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
             return MinerTaskResponse(message=f"Queue full ({total_active})", accepted=False)
 
