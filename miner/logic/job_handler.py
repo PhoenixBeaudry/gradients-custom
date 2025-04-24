@@ -181,7 +181,22 @@ def start_tuning_container_diffusion(job: DiffusionJob):
     docker_env = DockerEnvironmentDiffusion(
         huggingface_token=cst.HUGGINGFACE_TOKEN, wandb_token=cst.WANDB_TOKEN, job_id=job.job_id, base_model=job.model_type.value
     ).to_dict()
+
+    # Get assigned GPUs from worker environment
+    assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if assigned_gpus:
+        logger.info(f"Worker assigned GPUs: {assigned_gpus}")
+        # Pass GPU assignment into the container environment
+        docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
+        device_requests = [docker.types.DeviceRequest(device_ids=assigned_gpus.split(','), capabilities=[["gpu"]])]
+    else:
+        logger.warning("CUDA_VISIBLE_DEVICES not set for worker, container will see all GPUs.")
+        # Default: request all GPUs if not specified
+        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+
     logger.info(f"Docker environment: {docker_env}")
+    logger.info(f"Docker device requests: {device_requests}")
+
 
     try:
         docker_client = docker.from_env()
@@ -217,7 +232,7 @@ def start_tuning_container_diffusion(job: DiffusionJob):
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
             ],
             shm_size="32g",
-            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
+            device_requests=device_requests, # Use specific GPUs if assigned
             detach=True,
             tty=True,
         )
@@ -341,7 +356,21 @@ def start_tuning_container(job: TextJob):
         dataset_type=cst.CUSTOM_DATASET_TYPE,
         dataset_filename=os.path.basename(job.dataset) if job.file_format != FileFormat.HF else "",
     ).to_dict()
+
+    # Get assigned GPUs from worker environment
+    assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if assigned_gpus:
+        logger.info(f"Worker assigned GPUs: {assigned_gpus}")
+        # Pass GPU assignment into the container environment
+        docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
+        device_requests = [docker.types.DeviceRequest(device_ids=assigned_gpus.split(','), capabilities=[["gpu"]])]
+    else:
+        logger.warning("CUDA_VISIBLE_DEVICES not set for worker, container will see all GPUs.")
+        # Default: request all GPUs if not specified
+        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+
     logger.info(f"Docker environment: {docker_env}")
+    logger.info(f"Docker device requests: {device_requests}")
 
     try:
         docker_client = docker.from_env()
@@ -384,7 +413,7 @@ def start_tuning_container(job: TextJob):
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
             ],
             shm_size="64g",
-            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
+            device_requests=device_requests, # Use specific GPUs if assigned
             detach=True,
             tty=True,
         )

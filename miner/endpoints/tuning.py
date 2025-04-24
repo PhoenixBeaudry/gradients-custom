@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import toml
 import yaml
+import redis
 from fastapi import Depends
 from fastapi import HTTPException
 from fastapi.routing import APIRouter
@@ -14,6 +15,8 @@ from fiber.miner.dependencies import get_config
 from fiber.miner.dependencies import verify_get_request
 from fiber.miner.dependencies import verify_request
 from pydantic import ValidationError
+from rq import Queue
+from rq.registry import StartedJobRegistry
 
 import core.constants as cst
 from core.models.payload_models import MinerTaskOffer
@@ -24,25 +27,28 @@ from core.models.payload_models import TrainResponse
 from core.models.utility_models import FileFormat
 from core.models.utility_models import TaskType
 from core.utils import download_s3_file
-from miner.config import WorkerConfig
-from miner.dependencies import get_worker_config
+# from miner.config import WorkerConfig # Removed
+# from miner.dependencies import get_worker_config # Removed
 from miner.logic.job_handler import create_job_diffusion
 from miner.logic.job_handler import create_job_text
+from miner.logic.job_handler import start_tuning_container, start_tuning_container_diffusion # Import job functions
 
 
 logger = get_logger(__name__)
 
-current_job_finish_time = None
+# Connect to Redis and initialize RQ Queue
+redis_conn = redis.Redis(host=cst.REDIS_HOST, port=cst.REDIS_PORT, db=0) # Assuming constants REDIS_HOST/PORT exist
+rq_queue = Queue(connection=redis_conn)
 
 
 async def tune_model_text(
     train_request: TrainRequestText,
-    worker_config: WorkerConfig = Depends(get_worker_config),
+    # worker_config: WorkerConfig = Depends(get_worker_config), # Removed
 ):
-    global current_job_finish_time
+    # global current_job_finish_time # Removed
     logger.info("Starting model tuning.")
 
-    current_job_finish_time = datetime.now() + timedelta(hours=train_request.hours_to_complete)
+    # current_job_finish_time = datetime.now() + timedelta(hours=train_request.hours_to_complete) # Removed
     logger.info(f"Job received is {train_request}")
 
     try:
@@ -65,19 +71,21 @@ async def tune_model_text(
         expected_repo_name=train_request.expected_repo_name,
     )
     logger.info(f"Created job {job}")
-    worker_config.trainer.enqueue_job(job)
+    # worker_config.trainer.enqueue_job(job) # Replaced with RQ
+    rq_job = rq_queue.enqueue(start_tuning_container, job, job_timeout=int(train_request.hours_to_complete * 3600 * 1.1)) # Add timeout buffer
+    logger.info(f"Enqueued job {rq_job.id} to RQ")
 
     return {"message": "Training job enqueued.", "task_id": job.job_id}
 
 
 async def tune_model_diffusion(
     train_request: TrainRequestImage,
-    worker_config: WorkerConfig = Depends(get_worker_config),
+    # worker_config: WorkerConfig = Depends(get_worker_config), # Removed
 ):
-    global current_job_finish_time
+    # global current_job_finish_time # Removed
     logger.info("Starting model tuning.")
 
-    current_job_finish_time = datetime.now() + timedelta(hours=train_request.hours_to_complete)
+    # current_job_finish_time = datetime.now() + timedelta(hours=train_request.hours_to_complete) # Removed
     logger.info(f"Job received is {train_request}")
     try:
         train_request.dataset_zip = await download_s3_file(
@@ -96,7 +104,9 @@ async def tune_model_diffusion(
         expected_repo_name=train_request.expected_repo_name,
     )
     logger.info(f"Created job {job}")
-    worker_config.trainer.enqueue_job(job)
+    # worker_config.trainer.enqueue_job(job) # Replaced with RQ
+    rq_job = rq_queue.enqueue(start_tuning_container_diffusion, job, job_timeout=int(train_request.hours_to_complete * 3600 * 1.1)) # Add timeout buffer
+    logger.info(f"Enqueued job {rq_job.id} to RQ")
 
     return {"message": "Training job enqueued.", "task_id": job.job_id}
 
@@ -132,7 +142,7 @@ async def get_latest_model_submission(task_id: str) -> str:
 async def task_offer(
     request: MinerTaskOffer,
     config: Config = Depends(get_config),
-    worker_config: WorkerConfig = Depends(get_worker_config),
+    # worker_config: WorkerConfig = Depends(get_worker_config), # Removed
 ) -> MinerTaskResponse:
     try:
         logger.info("An offer has come through")
@@ -149,13 +159,16 @@ async def task_offer(
                 accepted=False
             )
 
-        # instead of a single finish time, check how many jobs are _actually_ running
-        running = worker_config.trainer.active_job_count()
-        capacity = 1
+        # Check RQ queue length and running jobs
+        queued_count = rq_queue.count
+        started_registry = StartedJobRegistry(queue=rq_queue)
+        running_count = started_registry.count
+        total_active = queued_count + running_count
+        capacity = 1 # TODO: Make this configurable?
 
-        if running >= capacity + 4:
-            return MinerTaskResponse(message=f"Queue full ({running})", accepted=False)
-
+        if total_active >= capacity + 4: # Keep existing buffer logic
+            logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
+            return MinerTaskResponse(message=f"Queue full ({total_active})", accepted=False)
 
         # optional: still reject absurdly long jobs if you want
         if request.hours_to_complete >= 48:
@@ -163,7 +176,7 @@ async def task_offer(
             return MinerTaskResponse(message="Job too long", accepted=False)
 
         # otherwise accept
-        logger.info(f"Accepting offer ({running+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
+        logger.info(f"Accepting offer ({total_active+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
         return MinerTaskResponse(message="-----:)-----", accepted=True)
 
     except ValidationError as e:
@@ -179,18 +192,21 @@ async def task_offer(
 async def task_offer_image(
     request: MinerTaskOffer,
     config: Config = Depends(get_config),
-    worker_config: WorkerConfig = Depends(get_worker_config),
+    # worker_config: WorkerConfig = Depends(get_worker_config), # Removed
 ) -> MinerTaskResponse:
     try:
         logger.info("An image offer has come through")
 
-        # instead of a single finish time, check how many jobs are _actually_ running
-        running = worker_config.trainer.active_job_count()
-        capacity = 1
+        # Check RQ queue length and running jobs
+        queued_count = rq_queue.count
+        started_registry = StartedJobRegistry(queue=rq_queue)
+        running_count = started_registry.count
+        total_active = queued_count + running_count
+        capacity = 1 # TODO: Make this configurable?
 
-        if running >= capacity + 4:
-            return MinerTaskResponse(message=f"Queue full ({running})", accepted=False)
-
+        if total_active >= capacity + 4: # Keep existing buffer logic
+            logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
+            return MinerTaskResponse(message=f"Queue full ({total_active})", accepted=False)
 
         # optional: still reject absurdly long jobs if you want
         if request.hours_to_complete >= 48:
@@ -198,7 +214,7 @@ async def task_offer_image(
             return MinerTaskResponse(message="Job too long", accepted=False)
 
         # otherwise accept
-        logger.info(f"Accepting offer ({running+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
+        logger.info(f"Accepting offer ({total_active+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
         return MinerTaskResponse(message="-----:)-----", accepted=True)
 
     except ValidationError as e:

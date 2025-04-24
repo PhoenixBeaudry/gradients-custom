@@ -43,6 +43,7 @@ dependencies = [
     "sentencepiece==0.2.0",
     "peft",
     "Pillow==11.1.0",
+    "rq==1.16.2", # Added Redis Queue
 ]
 
 [project.optional-dependencies]
