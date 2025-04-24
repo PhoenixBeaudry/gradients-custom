@@ -236,37 +236,35 @@ async def task_offer_image(
 
 async def retry_failed_job(job_id: str):
     """
-    Requeue a job from the failed job registry.
+    Requeue a job, preferably one that has failed.
     """
-    failed_registry = FailedJobRegistry(queue=rq_queue)
-    
-    # Check if job ID exists in the failed registry first
-    if job_id not in failed_registry.get_job_ids():
-        logger.error(f"Job {job_id} not found in failed registry.")
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found in failed registry.")
-        
     try:
         # Fetch the job by ID using the connection
         job = Job.fetch(job_id, connection=redis_conn)
 
-        # Double-check if it's failed (should be, as it was in the registry)
+        # Check if the job actually failed
         if job.is_failed:
             logger.info(f"Requeuing failed job {job_id}")
-            # Requeue the job using the registry method
+            failed_registry = FailedJobRegistry(queue=rq_queue)
+            # Use registry's requeue method for consistency
             failed_registry.requeue(job)
-            return {"message": f"Job {job_id} successfully requeued."}
+            return {"message": f"Failed job {job_id} successfully requeued."}
         else:
-            # This case is unlikely if it was in the registry, but handle defensively
-            logger.warning(f"Job {job_id} was in failed registry but is not in failed state now (Status: {job.get_status()}). Cannot requeue.")
-            raise HTTPException(status_code=409, detail=f"Job {job_id} is no longer in a failed state.")
+            # If job exists but isn't failed, report its status
+            current_status = job.get_status()
+            logger.warning(f"Job {job_id} found but is not in failed state (Status: {current_status}). Cannot requeue.")
+            raise HTTPException(
+                status_code=409, # Conflict status code
+                detail=f"Job {job_id} exists but is not failed (Status: {current_status}). Only failed jobs can be requeued via this endpoint."
+            )
 
     except NoSuchJobError:
-        # Handle case where job ID was in registry list but fetch failed (e.g., data cleaned up between check and fetch)
-        logger.error(f"Job {job_id} was listed in failed registry but could not be fetched.")
-        raise HTTPException(status_code=404, detail=f"Job {job_id} data not found, may have been cleaned up.")
+        # Handle case where job ID doesn't exist in Redis at all
+        logger.error(f"Job {job_id} not found in Redis.")
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
     except Exception as e:
-        logger.error(f"Error requeuing job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error requeuing job: {str(e)}")
+        logger.error(f"Error processing retry for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing retry for job {job_id}: {str(e)}")
 
 
 def factory_router() -> APIRouter:
