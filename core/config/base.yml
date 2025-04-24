@@ -71,17 +71,7 @@ max_steps: 30
 
 debug:
 
-fsdp:
-  - full_shard
-  - auto_wrap
-fsdp_config:
-  fsdp_limit_all_gathers: true
-  fsdp_sync_module_states: true
-  fsdp_offload_params: false
-  fsdp_use_orig_params: false
-  fsdp_cpu_ram_efficient_loading: true
-  fsdp_state_dict_type: FULL_STATE_DICT
-  fsdp_sharding_strategy: FULL_SHARD
+deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
   
 weight_decay: 0.0
 plugins:
