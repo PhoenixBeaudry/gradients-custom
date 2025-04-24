@@ -15,7 +15,8 @@ from fiber.miner.dependencies import get_config
 from fiber.miner.dependencies import verify_get_request
 from fiber.miner.dependencies import verify_request
 from pydantic import ValidationError
-from rq import Queue, Job # Import Job
+from rq import Queue
+from rq.job import Job # Correct import for Job class
 from rq.registry import StartedJobRegistry, FailedJobRegistry
 from rq.exceptions import NoSuchJobError
 
