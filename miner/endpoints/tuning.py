@@ -37,7 +37,13 @@ from miner.logic.job_handler import start_tuning_container, start_tuning_contain
 logger = get_logger(__name__)
 
 # Connect to Redis and initialize RQ Queue
-redis_conn = redis.Redis(host=cst.REDIS_HOST, port=cst.REDIS_PORT, db=0) # Assuming constants REDIS_HOST/PORT exist
+redis_conn = redis.Redis(
+    host=cst.REDIS_HOST,
+    port=cst.REDIS_PORT,
+    password=cst.REDIS_PASSWORD, # Add password from constants
+    db=0,
+    decode_responses=True # Recommended for RQ
+)
 rq_queue = Queue(connection=redis_conn)
 
 
