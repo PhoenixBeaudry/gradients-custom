@@ -42,7 +42,7 @@ CMD echo 'Preparing data...' && \
     cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
     fi && \
     echo 'Finding best learning rate…' && \
-    python /workspace/axolotl/configs/find_lr.py ${CONFIG_DIR}/${JOB_ID}.yml && \
+    python3 /workspace/axolotl/configs/find_lr.py ${CONFIG_DIR}/${JOB_ID}.yml && \
     echo 'Starting training command' && \
     accelerate launch -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml
 
