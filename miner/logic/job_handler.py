@@ -382,9 +382,8 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         job.expected_repo_name,
     )
     save_config(config, config_path)
-    logger.debug(f"Base config saved to {config_path}")
 
-    # --- common docker setup ---
+    # --- assemble common Docker setup ---
     docker_env = DockerEnvironment(
         huggingface_token=cst.HUGGINGFACE_TOKEN,
         wandb_token=cst.WANDB_TOKEN,
@@ -399,17 +398,17 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
     if assigned_gpus:
         docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
-        device_requests = [
-            docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
-        ]
+        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
     else:
-        device_requests = [
-            docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
-        ]
+        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
 
     volume_bindings = {
-        os.path.abspath(cst.CONFIG_DIR):    {"bind": "/workspace/axolotl/configs", "mode": "rw"},
-        os.path.abspath(cst.OUTPUT_DIR):    {"bind": "/workspace/axolotl/outputs", "mode": "rw"},
+        os.path.abspath(cst.CONFIG_DIR): {
+            "bind": "/workspace/axolotl/configs", "mode": "rw"
+        },
+        os.path.abspath(cst.OUTPUT_DIR): {
+            "bind": "/workspace/axolotl/outputs", "mode": "rw"
+        },
         os.path.expanduser("~/.cache/huggingface"): {
             "bind": "/root/.cache/huggingface", "mode": "rw"
         },
@@ -421,13 +420,13 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     docker_client = docker.from_env()
 
     # --- PHASE 1: quick local-only benchmark ---
-    bench_cfg = dict(config)
+    bench_job_id   = f"{job.job_id}.bench"
+    bench_cfg      = dict(config)
     bench_cfg.update({
-        # measure throughput
         "include_tokens_per_second": True,
-        "max_steps":                 3,
+        "max_steps":                 5,
         "logging_steps":             1,
-        # disable external logging and hub interactions
+        # disable W&B and HF Hub
         "wandb_mode":    "disabled",
         "wandb_project": "",
         "wandb_entity":  "",
@@ -437,15 +436,18 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         "hub_model_id":  "",
         "hub_repo":      "",
     })
-    bench_filename = f"{job.job_id}.bench.yml"
+    bench_filename = f"{bench_job_id}.yml"
     bench_path     = os.path.join(cst.CONFIG_DIR, bench_filename)
     save_config(bench_cfg, bench_path)
+
+    # override env so entrypoint picks up bench config
+    bench_env = docker_env.copy()
+    bench_env["JOB_ID"] = bench_job_id
 
     logger.info("Running quick benchmark (no W&B or HF Hub)…")
     bench_logs = docker_client.containers.run(
         image           = cst.MINER_DOCKER_IMAGE,
-        command         = ["axolotl", "train", f"/workspace/axolotl/configs/{bench_filename}"],
-        environment     = docker_env,
+        environment     = bench_env,
         volumes         = volume_bindings,
         runtime         = "nvidia",
         device_requests = device_requests,
@@ -456,11 +458,11 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
     m = re.search(r"tokens/s:\s*([0-9.]+)", bench_logs)
     if not m:
-        raise RuntimeError("Could not parse tokens/sec from bench logs")
+        raise RuntimeError("Could not parse tokens/sec from benchmark logs")
     tokens_per_sec = float(m.group(1))
     logger.info(f"Measured throughput: {tokens_per_sec:.0f} tokens/sec")
 
-    # --- compute real max_steps ---
+    # --- compute real max_steps & schedules ---
     micro_bs = config.get("micro_batch_size", 1)
     grad_acc = config.get("gradient_accumulation_steps", 1)
     seq_len  = config.get("sequence_len", 512)
@@ -468,26 +470,27 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
     tokens_per_step = micro_bs * grad_acc * seq_len * num_gpus
     real_steps      = int(tokens_per_sec * hours_to_complete * 3600 / tokens_per_step)
-    # set max_steps and reasonable warmup/save/eval schedules
-    warmup   = max(1, int(real_steps * 0.1))       # 10% of steps
-    save     = max(1, int(real_steps * 0.1))       # save every 10%
-    evaluate = max(1, int(real_steps * 0.05))      # eval every 5%
+
+    warmup   = max(1, int(real_steps * 0.1))   # 10%
+    save     = max(1, int(real_steps * 0.1))   # 10%
+    evaluate = max(1, int(real_steps * 0.05))  # 5%
 
     config.update({
-        "max_steps":     real_steps,
-        "warmup_steps":  warmup,
-        "save_steps":    save,
-        "eval_steps":    evaluate,
+        "max_steps":    real_steps,
+        "warmup_steps": warmup,
+        "save_steps":   save,
+        "eval_steps":   evaluate,
     })
     save_config(config, config_path)
-    logger.info(f"Updated config: max_steps={real_steps}, warmup_steps={warmup}, "
-                f"save_steps={save}, eval_steps={evaluate}")
+    logger.info(
+        f"Config updated: max_steps={real_steps}, "
+        f"warmup_steps={warmup}, save_steps={save}, eval_steps={evaluate}"
+    )
 
-    # --- PHASE 2: full training ---
+    # --- PHASE 2: full training run ---
     try:
         container = docker_client.containers.run(
             image           = cst.MINER_DOCKER_IMAGE,
-            command         = ["axolotl", "train", f"/workspace/axolotl/configs/{config_filename}"],
             environment     = docker_env,
             volumes         = volume_bindings,
             runtime         = "nvidia",
@@ -511,10 +514,10 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         raise
 
     finally:
-        # optionally make the HF repo public
         if repo := config.get("hub_model_id"):
-            HfApi(token=cst.HUGGINGFACE_TOKEN) \
-              .update_repo_settings(repo_id=repo, private=False)
+            HfApi(token=cst.HUGGINGFACE_TOKEN).update_repo_settings(
+                repo_id=repo, private=False
+            )
             logger.info(f"Repo {repo} is now public")
 
         if "container" in locals():
