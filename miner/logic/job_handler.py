@@ -435,25 +435,29 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         "hub_model_id":  "",
         "hub_repo":      "",
     })
-    bench_file = f"{bench_id}.yml"
+     # PHASE 1: quick local-only benchmark (no W&B/HF, 5 steps)
+    bench_file = f"{job.job_id}.bench.yml"
     bench_path = os.path.join(cst.CONFIG_DIR, bench_file)
     save_config(bench_cfg, bench_path)
 
-    # remove credentials so ENTRYPOINT skips login
-    bench_env = {k:v for k,v in base_env.items()
-                 if k not in ("HUGGINGFACE_TOKEN","WANDB_TOKEN")}
-    bench_env["JOB_ID"] = bench_id
+    # build bench_env as before (dropping HUGGINGFACE_TOKEN & WANDB_TOKEN)
+    bench_env = {k:v for k,v in base_env.items() if k not in ("HUGGINGFACE_TOKEN","WANDB_TOKEN")}
+    bench_env["JOB_ID"] = f"{job.job_id}.bench"
 
-    logger.info("→ Phase 1: running 5-step bench without W&B/HF logins…")
-    logs = client.containers.run(
+    logger.info("→ Phase 1: running 5-step bench directly with `axolotl train`…")
+    bench_logs = client.containers.run(
         image           = cst.MINER_DOCKER_IMAGE,
+        command         = [
+            "axolotl", "train",
+            f"/workspace/axolotl/configs/{bench_file}"
+        ],
         environment     = bench_env,
         volumes         = vols,
         runtime         = "nvidia",
         device_requests = device_requests,
         remove          = True,
         detach          = False,
-        tty             = True,
+        tty             = False,
     ).decode()
 
     m = re.search(r"tokens/s:\s*([0-9.]+)", logs)
