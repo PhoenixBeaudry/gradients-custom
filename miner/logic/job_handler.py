@@ -435,36 +435,38 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         "hub_model_id":  "",
         "hub_repo":      "",
     })
-     # PHASE 1: quick local-only benchmark (no W&B/HF, 5 steps)
-    bench_file = f"{job.job_id}.bench.yml"
+    bench_file = f"{bench_id}.yml"
     bench_path = os.path.join(cst.CONFIG_DIR, bench_file)
     save_config(bench_cfg, bench_path)
 
-    # build bench_env as before (dropping HUGGINGFACE_TOKEN & WANDB_TOKEN)
-    bench_env = {k:v for k,v in base_env.items() if k not in ("HUGGINGFACE_TOKEN","WANDB_TOKEN")}
-    bench_env["JOB_ID"] = f"{job.job_id}.bench"
+    # remove credentials so ENTRYPOINT skips login
+    bench_env = {k:v for k,v in base_env.items()
+                 if k not in ("HUGGINGFACE_TOKEN","WANDB_TOKEN")}
+    bench_env["JOB_ID"] = bench_id
 
-    logger.info("→ Phase 1: running 5-step bench directly with `axolotl train`…")
-    bench_logs = client.containers.run(
+    # PHASE 1: spawn bench container in detached mode, then wait & grab logs
+    bench_container = client.containers.run(
         image           = cst.MINER_DOCKER_IMAGE,
-        command         = [
-            "axolotl", "train",
-            f"/workspace/axolotl/configs/{bench_file}"
-        ],
         environment     = bench_env,
         volumes         = vols,
         runtime         = "nvidia",
         device_requests = device_requests,
-        remove          = True,
-        detach          = False,
-        tty             = False,
-    ).decode()
+        detach          = True,
+        tty             = False,   # no TTY so logs are unbuffered
+        # remove=False so we can inspect even on non-zero exit
+    )
+    exit_info = bench_container.wait()
+    bench_logs = bench_container.logs(stdout=True, stderr=True).decode()
+    bench_container.remove(force=True)
 
-    m = re.search(r"tokens/s:\s*([0-9.]+)", logs)
+    if exit_info.get("StatusCode", 1) != 0:
+        logger.warning("Benchmark container exited non-zero, logs:\n%s", bench_logs)
+
+    m = re.search(r"tokens/s:\s*([0-9.]+)", bench_logs)
     if not m:
-        raise RuntimeError("Failed to parse tokens/sec from bench logs")
-    tps = float(m.group(1))
-    logger.info(f"Measured {tps:.0f} tokens/sec")
+        raise RuntimeError(f"Could not parse tokens/sec from bench logs:\n{bench_logs}")
+    tokens_per_sec = float(m.group(1))
+    logger.info(f"Measured throughput: {tokens_per_sec:.0f} tokens/sec")
 
     # --- 3) compute full-run schedules ---
     bs     = config.get("micro_batch_size", 1)
@@ -472,7 +474,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     sl     = config.get("sequence_len", 512)
     gpus   = len(assigned.split(",")) if assigned else 1
     tokps  = bs * ga * sl * gpus
-    max_st = int(tps * hours_to_complete * 3600 / tokps)
+    max_st = int(tokens_per_sec * hours_to_complete * 3600 / tokps)
 
     # derive warmup/save/eval as fractions
     wu = max(1, int(max_st * 0.1))
