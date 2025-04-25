@@ -364,15 +364,21 @@ def _adapt_columns_for_dpo_dataset(dataset_path: str, dataset_type: DPODatasetTy
         json.dump(output_data, f, indent=2)
 
 
+import os
+import re
+import docker
+from huggingface_hub import HfApi
+from docker.errors import DockerException
+
 def start_tuning_container(job: TextJob, hours_to_complete: int):
     logger.info("=" * 80)
     logger.info("STARTING THE TUNING CONTAINER")
     logger.info("=" * 80)
 
+    # --- prepare base config + save ---
     config_filename = f"{job.job_id}.yml"
-    config_path = os.path.join(cst.CONFIG_DIR, config_filename)
-
-    config = _load_and_modify_config(
+    config_path     = os.path.join(cst.CONFIG_DIR, config_filename)
+    config          = _load_and_modify_config(
         job.dataset,
         job.model,
         job.dataset_type,
@@ -381,99 +387,129 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         job.expected_repo_name,
     )
     save_config(config, config_path)
+    logger.debug(f"Base config saved to {config_path}")
 
-    logger.info(config)
-
-    logger.info(os.path.basename(job.dataset) if job.file_format != FileFormat.HF else "")
-
+    # --- common docker setup ---
     docker_env = DockerEnvironment(
         huggingface_token=cst.HUGGINGFACE_TOKEN,
         wandb_token=cst.WANDB_TOKEN,
         job_id=job.job_id,
         dataset_type=cst.CUSTOM_DATASET_TYPE,
-        dataset_filename=os.path.basename(job.dataset) if job.file_format != FileFormat.HF else "",
+        dataset_filename=(
+            os.path.basename(job.dataset)
+            if job.file_format != FileFormat.HF else ""
+        ),
     ).to_dict()
 
-    # Get assigned GPUs from worker environment
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
     if assigned_gpus:
-        logger.info(f"Worker assigned GPUs: {assigned_gpus}")
-        # Pass GPU assignment into the container environment
         docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
-        # Revert device_requests to allow container to see all assigned GPUs, rely on env var inside.
-        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+        device_requests = [
+            docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+        ]
     else:
-        logger.warning("CUDA_VISIBLE_DEVICES not set for worker, container will see all GPUs.")
-        # Default: request all GPUs if not specified
-        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+        device_requests = [
+            docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])
+        ]
 
-    logger.info(f"Docker environment: {docker_env}")
-    logger.info(f"Docker device requests: {device_requests}")
+    volume_bindings = {
+        os.path.abspath(cst.CONFIG_DIR):    {"bind": "/workspace/axolotl/configs", "mode": "rw"},
+        os.path.abspath(cst.OUTPUT_DIR):    {"bind": "/workspace/axolotl/outputs", "mode": "rw"},
+        os.path.expanduser("~/.cache/huggingface"): {
+            "bind": "/root/.cache/huggingface", "mode": "rw"
+        },
+    }
+    if job.file_format != FileFormat.HF:
+        ds_dir = os.path.dirname(os.path.abspath(job.dataset))
+        volume_bindings[ds_dir] = {"bind": "/workspace/input_data", "mode": "ro"}
 
+    docker_client = docker.from_env()
+
+    # --- PHASE 1: quick local-only benchmark ---
+    bench_cfg = dict(config)
+    bench_cfg.update({
+        # measure throughput
+        "include_tokens_per_second": True,
+        "max_steps":                 5,
+        "logging_steps":             1,
+        # disable external logging and hub interactions
+        "wandb_mode":    "disabled",
+        "wandb_project": "",
+        "wandb_entity":  "",
+        "wandb_run":     "",
+        "wandb_runid":   "",
+        "hub_strategy":  "none",
+        "hub_model_id":  "",
+        "hub_repo":      "",
+    })
+    bench_filename = f"{job.job_id}.bench.yml"
+    bench_path     = os.path.join(cst.CONFIG_DIR, bench_filename)
+    save_config(bench_cfg, bench_path)
+
+    logger.info("Running quick benchmark (no W&B or HF Hub)…")
+    bench_logs = docker_client.containers.run(
+        image           = cst.MINER_DOCKER_IMAGE,
+        command         = ["axolotl", "train", f"/workspace/axolotl/configs/{bench_filename}"],
+        environment     = docker_env,
+        volumes         = volume_bindings,
+        runtime         = "nvidia",
+        device_requests = device_requests,
+        remove          = True,
+        detach          = False,
+        tty             = True,
+    ).decode()
+
+    m = re.search(r"tokens/s:\s*([0-9.]+)", bench_logs)
+    if not m:
+        raise RuntimeError("Could not parse tokens/sec from bench logs")
+    tokens_per_sec = float(m.group(1))
+    logger.info(f"Measured throughput: {tokens_per_sec:.0f} tokens/sec")
+
+    # --- compute real max_steps ---
+    micro_bs = config.get("micro_batch_size", 1)
+    grad_acc = config.get("gradient_accumulation_steps", 1)
+    seq_len  = config.get("sequence_len", 512)
+    num_gpus = len(assigned_gpus.split(",")) if assigned_gpus else 1
+
+    tokens_per_step = micro_bs * grad_acc * seq_len * num_gpus
+    real_steps      = int(tokens_per_sec * hours_to_complete * 3600 / tokens_per_step)
+    config["max_steps"] = real_steps
+    save_config(config, config_path)
+    logger.info(f"Updated config with max_steps={real_steps}")
+
+    # --- PHASE 2: full training ---
     try:
-        docker_client = docker.from_env()
-
-        volume_bindings = {
-            os.path.abspath(cst.CONFIG_DIR): {
-                "bind": "/workspace/axolotl/configs",
-                "mode": "rw",
-            },
-            os.path.abspath(cst.OUTPUT_DIR): {
-                "bind": "/workspace/axolotl/outputs",
-                "mode": "rw",
-            },
-        }
-        volume_bindings[ os.path.expanduser("~/.cache/huggingface") ] = {
-            "bind": "/root/.cache/huggingface",
-            "mode": "rw"
-        }
-
-        if job.file_format != FileFormat.HF:
-            dataset_dir = os.path.dirname(os.path.abspath(job.dataset))
-            logger.info(dataset_dir)
-            volume_bindings[dataset_dir] = {
-                "bind": "/workspace/input_data",
-                "mode": "ro",
-            }
-
-        if isinstance(job.dataset_type, DPODatasetType):
-            if job.file_format == FileFormat.JSON:
-                _adapt_columns_for_dpo_dataset(job.dataset, job.dataset_type, True)
-
-
         container = docker_client.containers.run(
-            image=cst.MINER_DOCKER_IMAGE,
-            environment=docker_env,
-            volumes=volume_bindings,
-            runtime="nvidia",
-            ulimits=[
+            image           = cst.MINER_DOCKER_IMAGE,
+            command         = ["axolotl", "train", f"/workspace/axolotl/configs/{config_filename}"],
+            environment     = docker_env,
+            volumes         = volume_bindings,
+            runtime         = "nvidia",
+            ulimits         = [
                 docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
                 docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
             ],
-            shm_size="64g",
-            device_requests=device_requests, # Use specific GPUs if assigned
-            detach=True,
-            tty=True,
+            shm_size        = "64g",
+            device_requests = device_requests,
+            detach          = True,
+            tty             = True,
         )
 
-        # Use the shared stream_logs function
         stream_logs(container)
-
         result = container.wait()
-
         if result["StatusCode"] != 0:
-            raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
+            raise DockerException(f"Exit code {result['StatusCode']}")
 
     except Exception as e:
-        logger.error(f"Error processing job: {str(e)}")
+        logger.error(f"Error during full training: {e}")
         raise
 
     finally:
-        repo = config.get("hub_model_id", None)
-        if repo:
-            hf_api = HfApi(token=cst.HUGGINGFACE_TOKEN)
-            hf_api.update_repo_settings(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
-            logger.info(f"Successfully made repository {repo} public")
+        # optionally make the HF repo public
+        if repo := config.get("hub_model_id"):
+            HfApi(token=cst.HUGGINGFACE_TOKEN) \
+              .update_repo_settings(repo_id=repo, private=False)
+            logger.info(f"Repo {repo} is now public")
 
         if "container" in locals():
             try:
