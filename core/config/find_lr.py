@@ -7,78 +7,64 @@ from ruamel.yaml import YAML
 from torch.utils.data import DataLoader
 from torch_lr_finder import LRFinder
 from datasets import load_dataset
-from transformers import (
-    AutoTokenizer,
-    DataCollatorForLanguageModeling,
-)
-
-def infer_format(path: str):
-    ext = Path(path).suffix.lower()
-    if ext in {".json", ".jsonl"}:
-        return "json"
-    if ext == ".csv":
-        return "csv"
-    if ext in {".txt"}:
-        return "text"
-    raise ValueError(f"Cannot infer dataset format from {ext}")
+from transformers import DataCollatorForLanguageModeling, AutoTokenizer, AutoModelForCausalLM
 
 def find_and_patch_lr(cfg_path: str):
+    # --- load config ---
     yaml = YAML()
     cfg = yaml.load(open(cfg_path))
 
-    ds_path = cfg["datasets"]["dataset_prepared_path"]
-    val_frac = float(cfg["datasets"].get("val_set_size", 0) or 0)
+    # --- pull dataset path out of config["datasets"][0]["path"] ---
+    datasets = cfg.get("datasets", [])
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError("No entries under 'datasets' in config")
+    ds_entry = datasets[0]
+    ds_path = ds_entry.get("path")
+    if ds_path is None:
+        raise KeyError("Could not find 'path' in your dataset entry")
 
-    fmt = infer_format(ds_path)
-    data_files = {"train": ds_path}
+    # --- validation fraction & micro batch size from top level ---
+    val_frac = float(cfg.get("val_set_size", 0) or 0)
+    batch_size = int(cfg.get("micro_batch_size", 1))
 
-    ds = load_dataset(fmt, data_files=data_files)
-    if val_frac > 0:
-        split = ds["train"].train_test_split(test_size=val_frac, seed=42)
-        train_ds = split["train"]
-    else:
-        train_ds = ds["train"]
-
-    # tokenizer & model
-    tokenizer = AutoTokenizer.from_pretrained(cfg["base_model"], use_fast=True)
-    model = torch.load  # placeholder; actual model loading is only for LR lookup
-
-    # data collator
-    collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
-    loader = DataLoader(
-        train_ds, batch_size=cfg["micro_batch_size"],
-        shuffle=True, collate_fn=collator
+    # --- load & split dataset ---
+    # infer format from extension
+    fmt = Path(ds_path).suffix.lstrip(".").lower()
+    ds = load_dataset(fmt, data_files={"train": ds_path})
+    train_ds = (
+        ds["train"].train_test_split(test_size=val_frac, seed=42)["train"]
+        if val_frac > 0
+        else ds["train"]
     )
 
-    # build a minimal model+optimizer for range test:
-    from transformers import AutoModelForCausalLM
-    model = AutoModelForCausalLM.from_pretrained(cfg["base_model"]).to("cuda")
+    # --- tokenizer, model, collator, loader ---
+    tokenizer = AutoTokenizer.from_pretrained(cfg["base_model"], use_fast=True)
+    model     = AutoModelForCausalLM.from_pretrained(cfg["base_model"]).to("cuda")
+    collator  = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    loader    = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collator)
+
+    # --- set up optimizer & LR‐finder ---
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-7)
     criterion = lambda m, b: m(**b).loss
 
-    # run LR finder
-    finder = LRFinder(
-        model, optimizer, criterion,
-        device="cuda", memory_cache=False
-    )
+    finder = LRFinder(model, optimizer, criterion, device="cuda", memory_cache=False)
     finder.range_test(
         loader,
-        end_lr=cfg.get("lr_find_end_lr", 10.0),
-        num_iter=int(cfg.get("lr_find_iterations", 100))
+        end_lr=float(cfg.get("lr_find_end_lr", 10.0)),
+        num_iter=int(cfg.get("lr_find_iterations", 100)),
     )
 
-    # pick best
+    # --- pick best & patch config ---
     losses = finder.history["loss"]
     lrs    = finder.history["lr"]
     best_lr = lrs[losses.index(min(losses))]
     finder.reset()
-
     print(f"\n✅ Best LR ≃ {best_lr:.2e}")
 
-    # patch YAML
     cfg["learning_rate"] = float(f"{best_lr:.2e}")
     yaml.dump(cfg, open(cfg_path, "w"))
-    print(f"✏️  Updated learning_rate in {cfg_path}")
+    print(f"✏️  Wrote learning_rate: {best_lr:.2e} into {cfg_path}")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
