@@ -60,8 +60,9 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
+early_stopping_patience: 3
 eval_strategy: steps
-save_steps: 20
+save_strategy: best
 eval_steps: 10
 warmup_steps: 20
 eval_table_size:
@@ -80,5 +81,3 @@ liger_rms_norm: true
 liger_glu_activation: true
 liger_layer_norm: true
 liger_fused_linear_cross_entropy: true
-
-
