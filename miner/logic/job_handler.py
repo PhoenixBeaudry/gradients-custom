@@ -8,6 +8,7 @@ from transformers import AutoConfig
 import docker
 import pandas as pd
 import toml
+import re
 import yaml
 from docker.errors import DockerException
 from fiber.logging_utils import get_logger
@@ -364,12 +365,6 @@ def _adapt_columns_for_dpo_dataset(dataset_path: str, dataset_type: DPODatasetTy
         json.dump(output_data, f, indent=2)
 
 
-import os
-import re
-import docker
-from huggingface_hub import HfApi
-from docker.errors import DockerException
-
 def start_tuning_container(job: TextJob, hours_to_complete: int):
     logger.info("=" * 80)
     logger.info("STARTING THE TUNING CONTAINER")
@@ -430,7 +425,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     bench_cfg.update({
         # measure throughput
         "include_tokens_per_second": True,
-        "max_steps":                 5,
+        "max_steps":                 3,
         "logging_steps":             1,
         # disable external logging and hub interactions
         "wandb_mode":    "disabled",
