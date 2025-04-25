@@ -209,7 +209,10 @@ def start_tuning_container_diffusion(job: DiffusionJob):
     ).to_dict()
 
     docker_env["TIME_TO_COMPLETE_HOURS"] = str(job.time_to_complete)
-    docker_env["PYTHONPATH"] = "/workspace/axolotl:" + docker_env.get("PYTHONPATH","")
+    docker_env["PYTHONPATH"] = (
+        "/workspace/axolotl"
+        + (":" + docker_env["PYTHONPATH"] if docker_env.get("PYTHONPATH") else "")
+    )
 
     # Get assigned GPUs from worker environment
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
@@ -244,10 +247,10 @@ def start_tuning_container_diffusion(job: DiffusionJob):
                 "bind": "/dataset/images",
                 "mode": "rw",
             },
-            os.path.abspath("core/callbacks"): {
-                "bind": "/workspace/axolotl/callbacks",
-                "mode": "ro"
-            },
+        }
+        volume_bindings[ os.path.abspath("core/callbacks") ] = {
+            "bind": "/workspace/axolotl/integrations/time_stop",
+            "mode": "ro",
         }
         
         if job.model_type == ImageModelType.FLUX:
@@ -405,7 +408,10 @@ def start_tuning_container(job: TextJob):
     ).to_dict()
 
     docker_env["TIME_TO_COMPLETE_HOURS"] = str(job.time_to_complete)
-    docker_env["PYTHONPATH"] = "/workspace/axolotl:" + docker_env.get("PYTHONPATH","")
+    docker_env["PYTHONPATH"] = (
+        "/workspace/axolotl"
+        + (":" + docker_env["PYTHONPATH"] if docker_env.get("PYTHONPATH") else "")
+    )
     # Get assigned GPUs from worker environment
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
     if assigned_gpus:
@@ -442,6 +448,10 @@ def start_tuning_container(job: TextJob):
         volume_bindings[ os.path.expanduser("~/.cache/huggingface") ] = {
             "bind": "/root/.cache/huggingface",
             "mode": "rw"
+        }
+        volume_bindings[ os.path.abspath("core/callbacks") ] = {
+            "bind": "/workspace/axolotl/integrations/time_stop",
+            "mode": "ro",
         }
         
 

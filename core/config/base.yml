@@ -6,10 +6,6 @@ load_in_8bit: false
 load_in_4bit: false
 strict: false
 
-callbacks:
-  - class: callbacks.time_stop.TimeStopCallback
-    init_args:
-      max_time_s: ${TIME_TO_COMPLETE_HOURS} * 3600
 
 
 chat_template: llama3
@@ -86,6 +82,7 @@ deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
   
 weight_decay: 0.0
 plugins:
+  - axolotl.integrations.time_stop.TimeStopPlugin
   - axolotl.integrations.liger.LigerPlugin
 liger_rope: true
 liger_rms_norm: true
@@ -93,4 +90,6 @@ liger_glu_activation: true
 liger_layer_norm: true
 liger_fused_linear_cross_entropy: true
 
+time_stop:
+  max_time_s: ${TIME_TO_COMPLETE_HOURS} * 3600
 
