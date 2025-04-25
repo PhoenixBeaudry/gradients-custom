@@ -8,7 +8,7 @@ RUN mkdir -p /workspace/axolotl/configs \
     /workspace/axolotl/data \
     /workspace/input_data
 
-RUN pip install torch-lr-finder ruamel.yaml
+RUN pip install torch-lr-finder ruamel.yaml axolotl
 
 ENV CONFIG_DIR="/workspace/axolotl/configs"
 ENV OUTPUT_DIR="/workspace/axolotl/outputs"
@@ -22,9 +22,6 @@ RUN mkdir -p /root/.aws && \
     echo "[default]\nregion=us-east-1" > /root/.aws/config
 
 CMD echo 'Preparing data...' && \
-    pip install mlflow && \
-    pip install protobuf && \
-    pip install --upgrade huggingface_hub && \
     if [ -n "$HUGGINGFACE_TOKEN" ]; then \
     echo "Attempting to log in to Hugging Face" && \
     huggingface-cli login --token "$HUGGINGFACE_TOKEN" --add-to-git-credential; \
