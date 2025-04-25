@@ -15,8 +15,8 @@ def find_and_patch_lr(cfg_path: str):
     cfg = yaml.load(open(cfg_path))
 
     # 1️⃣ Load model & tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model_name_or_path"], use_fast=True)
-    model = AutoModelForCausalLM.from_pretrained(cfg["model_name_or_path"]).to("cuda")
+    tokenizer = AutoTokenizer.from_pretrained(cfg["base_model"], use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(cfg["base_model"]).to("cuda")
 
     # 2️⃣ Load & tokenize your dataset
     ds = load_dataset(
