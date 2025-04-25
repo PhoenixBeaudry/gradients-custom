@@ -238,6 +238,10 @@ def start_tuning_container_diffusion(job: DiffusionJob, hours_to_complete: int):
                 "bind": "/dataset/images",
                 "mode": "rw",
             },
+            os.path.abspath('config'): {
+                "bind": "/lrconfig",
+                "mode": "rw",
+            },
         }
 
         if job.model_type == ImageModelType.FLUX:
@@ -420,6 +424,10 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
             },
             os.path.abspath(cst.OUTPUT_DIR): {
                 "bind": "/workspace/axolotl/outputs",
+                "mode": "rw",
+            },
+            os.path.abspath('config'): {
+                "bind": "/lrconfig",
                 "mode": "rw",
             },
         }
