@@ -8,6 +8,8 @@ RUN mkdir -p /workspace/axolotl/configs \
     /workspace/axolotl/data \
     /workspace/input_data
 
+RUN pip install torch-lr-finder ruamel.yaml
+
 ENV CONFIG_DIR="/workspace/axolotl/configs"
 ENV OUTPUT_DIR="/workspace/axolotl/outputs"
 ENV AWS_ENDPOINT_URL="https://5a301a635a9d0ac3cb7fcc3bf373c3c3.r2.cloudflarestorage.com"
@@ -39,6 +41,8 @@ CMD echo 'Preparing data...' && \
     cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/data/${DATASET_FILENAME}; \
     cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
     fi && \
+    echo 'Finding best learning rate…' && \
+    python /workspace/axolotl/configs/find_lr.py ${CONFIG_DIR}/${JOB_ID}.yml && \
     echo 'Starting training command' && \
     accelerate launch -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml
 
