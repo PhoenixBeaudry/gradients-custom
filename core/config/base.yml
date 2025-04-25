@@ -13,7 +13,7 @@ val_set_size: 0.05
 output_dir: miner_id_24
 
 sequence_len: 512
-sample_packing: true
+sample_packing: false
 eval_sample_packing: false
 pad_to_sequence_len: true
 trust_remote_code: true
@@ -21,7 +21,7 @@ gpu_memory_limit: 80GiB
 
 adapter: lora
 lora_model_dir:
-lora_r: 32
+lora_r: 16
 lora_alpha: 16
 lora_dropout: 0.05
 lora_target_linear: true
@@ -43,7 +43,7 @@ fp16: false
 tf32: true
 
 gradient_checkpointing: true
-early_stopping_patience: 5
+early_stopping_patience: 3
 resume_from_checkpoint:
 local_rank:
 logging_steps: 5
@@ -61,17 +61,18 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
+early_stopping: true
 evaluation_strategy: steps
 load_best_model_at_end: true
 metric_for_best_model: eval_loss
 greater_is_better: false
 save_total_limit: 1
-save_steps: 10
+save_steps: 20
 eval_steps: 10
-warmup_steps: 5
+warmup_steps: 20
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 1000
+max_steps: 10000
 
 debug:
 
