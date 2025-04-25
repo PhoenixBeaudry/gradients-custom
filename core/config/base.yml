@@ -63,7 +63,6 @@ hub_token:
 early_stopping_patience: 4
 eval_strategy: steps
 save_strategy: best
-save_steps: 20
 eval_steps: 10
 warmup_steps: 20
 eval_table_size:
