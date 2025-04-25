@@ -1,3 +1,4 @@
+import asyncio # Import asyncio
 import json
 import os
 import shutil
@@ -184,10 +185,9 @@ def start_tuning_container_diffusion(job: DiffusionJob):
         # For now, assuming it can be called synchronously or we adapt it.
         # If it MUST be async, we'd need asyncio.run() or similar here.
         # Let's assume for now it's adapted or can work synchronously for simplicity.
-        # If download_s3_file is strictly async, this will need `asyncio.run(download_s3_file(...))`
-        # TODO: Verify if download_s3_file can be called synchronously or adapt this call.
-        # Assuming synchronous call for now:
-        downloaded_local_zip_path = download_s3_file(job.dataset_zip, local_zip_path) # Adapt if async needed
+        # If download_s3_file is strictly async, this will need `asyncio.run(download_s3_file(...))` # Confirmed async needed
+        # Run the async download function synchronously using asyncio.run()
+        downloaded_local_zip_path = asyncio.run(download_s3_file(job.dataset_zip, local_zip_path))
         logger.info(f"Dataset zip downloaded to: {downloaded_local_zip_path}")
     except Exception as e:
         logger.error(f"Failed to download dataset zip from {job.dataset_zip}: {e}")
