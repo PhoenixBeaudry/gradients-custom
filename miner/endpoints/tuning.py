@@ -101,18 +101,18 @@ async def tune_model_diffusion(
 
     # current_job_finish_time = datetime.now() + timedelta(hours=train_request.hours_to_complete) # Removed
     logger.info(f"Job received is {train_request}")
-    try:
-        train_request.dataset_zip = await download_s3_file(
-            train_request.dataset_zip, f"{cst.DIFFUSION_DATASET_DIR}/{train_request.task_id}.zip"
-        )
-        logger.info(train_request.dataset_zip)
+    # try: # Remove pre-download
+    #     train_request.dataset_zip = await download_s3_file(
+    #         train_request.dataset_zip, f"{cst.DIFFUSION_DATASET_DIR}/{train_request.task_id}.zip"
+    #     )
+    #     logger.info(train_request.dataset_zip)
+    # except ValueError as e:
+    #     raise HTTPException(status_code=400, detail=str(e))
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+    # Pass the original dataset_zip URI (S3 path) to the job object
     job = create_job_diffusion(
         job_id=str(train_request.task_id),
-        dataset_zip=train_request.dataset_zip,
+        dataset_zip=train_request.dataset_zip, # Pass URI directly
         model=train_request.model,
         model_type=train_request.model_type,
         expected_repo_name=train_request.expected_repo_name,

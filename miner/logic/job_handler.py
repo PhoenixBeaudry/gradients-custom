@@ -19,6 +19,7 @@ from core.config.config_handler import update_flash_attention
 from core.config.config_handler import update_model_info
 from core.dataset.prepare_diffusion_dataset import prepare_dataset
 from core.docker_utils import stream_logs
+from core.utils import download_s3_file # Import the download utility
 from core.models.utility_models import DiffusionJob
 from core.models.utility_models import DPODatasetType
 from core.models.utility_models import FileFormat
@@ -170,8 +171,30 @@ def start_tuning_container_diffusion(job: DiffusionJob):
         logger.info(f"Downloading flux unet from {job.model}")
         flux_unet_path = download_flux_unet(job.model)
 
+    # Download the dataset zip file using the URI stored in the job object
+    logger.info(f"Downloading dataset zip from URI: {job.dataset_zip}")
+    try:
+        # Define a local path for the downloaded zip
+        local_zip_path = os.path.join(cst.DIFFUSION_DATASET_DIR, f"{job.job_id}_downloaded.zip")
+        # Ensure the target directory exists
+        os.makedirs(os.path.dirname(local_zip_path), exist_ok=True)
+        
+        # Perform the download (assuming download_s3_file is async, but job handler is sync)
+        # NOTE: If download_s3_file is async, this needs adjustment (e.g., run in event loop or make job handler async)
+        # For now, assuming it can be called synchronously or we adapt it.
+        # If it MUST be async, we'd need asyncio.run() or similar here.
+        # Let's assume for now it's adapted or can work synchronously for simplicity.
+        # If download_s3_file is strictly async, this will need `asyncio.run(download_s3_file(...))`
+        # TODO: Verify if download_s3_file can be called synchronously or adapt this call.
+        # Assuming synchronous call for now:
+        downloaded_local_zip_path = download_s3_file(job.dataset_zip, local_zip_path) # Adapt if async needed
+        logger.info(f"Dataset zip downloaded to: {downloaded_local_zip_path}")
+    except Exception as e:
+        logger.error(f"Failed to download dataset zip from {job.dataset_zip}: {e}")
+        raise # Re-raise the exception to fail the job
+
     prepare_dataset(
-        training_images_zip_path=job.dataset_zip,
+        training_images_zip_path=downloaded_local_zip_path, # Use the downloaded path
         training_images_repeat=cst.DIFFUSION_SDXL_REPEATS if job.model_type == ImageModelType.SDXL else cst.DIFFUSION_FLUX_REPEATS,
         instance_prompt=cst.DIFFUSION_DEFAULT_INSTANCE_PROMPT,
         class_prompt=cst.DIFFUSION_DEFAULT_CLASS_PROMPT,
@@ -252,10 +275,23 @@ def start_tuning_container_diffusion(job: DiffusionJob):
 
     finally:
         if "container" in locals():
-            container.remove(force=True)
+            try:
+                container.remove(force=True)
+                logger.info(f"Removed container for job {job.job_id}")
+            except Exception as e:
+                 logger.warning(f"Failed to remove container for job {job.job_id}: {e}")
 
+
+        # Clean up the specific downloaded zip file if it exists
+        if 'downloaded_local_zip_path' in locals() and os.path.exists(downloaded_local_zip_path):
+             try:
+                 os.remove(downloaded_local_zip_path)
+                 logger.info(f"Removed downloaded zip: {downloaded_local_zip_path}")
+             except Exception as e:
+                 logger.warning(f"Failed to remove downloaded zip {downloaded_local_zip_path}: {e}")
+
+        # Clean up the extracted training data directory
         train_data_path = f"{cst.DIFFUSION_DATASET_DIR}/{job.job_id}"
-
         if os.path.exists(train_data_path):
             shutil.rmtree(train_data_path)
 
