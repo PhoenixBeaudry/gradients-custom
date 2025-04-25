@@ -1,6 +1,6 @@
 FROM --platform=linux/amd64 axolotlai/axolotl:main-20241128-py3.11-cu124-2.5.1
 
-RUN pip install mlflow huggingface_hub wandb
+RUN python3 -m pip install mlflow huggingface_hub wandb
 
 WORKDIR /workspace/axolotl
 RUN mkdir -p /workspace/axolotl/configs \
@@ -8,7 +8,7 @@ RUN mkdir -p /workspace/axolotl/configs \
     /workspace/axolotl/data \
     /workspace/input_data
 
-RUN pip install torch-lr-finder ruamel.yaml axolotl
+RUN python3 -m pip install torch-lr-finder ruamel.yaml axolotl
 
 ENV CONFIG_DIR="/workspace/axolotl/configs"
 ENV OUTPUT_DIR="/workspace/axolotl/outputs"
@@ -16,30 +16,20 @@ ENV AWS_ENDPOINT_URL="https://5a301a635a9d0ac3cb7fcc3bf373c3c3.r2.cloudflarestor
 ENV AWS_ACCESS_KEY_ID=d49fdd0cc9750a097b58ba35b2d9fbed
 ENV AWS_DEFAULT_REGION="us-east-1"
 ENV AWS_SECRET_ACCESS_KEY=02e398474b783af6ded4c4638b5388ceb8079c83bb2f8233d5bcef0e60addba6
+ENV PYTHONPATH="/workspace/axolotl/src:${PYTHONPATH}"
 
 RUN mkdir -p /root/.aws && \
     echo "[default]\naws_access_key_id=dummy_access_key\naws_secret_access_key=dummy_secret_key" > /root/.aws/credentials && \
     echo "[default]\nregion=us-east-1" > /root/.aws/config
 
-CMD echo 'Preparing data...' && \
-    if [ -n "$HUGGINGFACE_TOKEN" ]; then \
-    echo "Attempting to log in to Hugging Face" && \
-    huggingface-cli login --token "$HUGGINGFACE_TOKEN" --add-to-git-credential; \
-    else \
-    echo "HUGGINGFACE_TOKEN is not set. Skipping Hugging Face login."; \
-    fi && \
-    if [ -n "$WANDB_TOKEN" ]; then \
-    echo "Attempting to log in to W&B" && \
-    wandb login "$WANDB_TOKEN"; \
-    else \
-    echo "WANDB_TOKEN is not set. Skipping W&B login."; \
-    fi && \
-    if [ "$DATASET_TYPE" != "hf" ] && [ -f "/workspace/input_data/${DATASET_FILENAME}" ]; then \
-    cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/data/${DATASET_FILENAME}; \
-    cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
-    fi && \
-    echo 'Finding best learning rate…' && \
-    python3 /workspace/axolotl/configs/find_lr.py ${CONFIG_DIR}/${JOB_ID}.yml && \
-    echo 'Starting training command' && \
-    accelerate launch -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml
+CMD ["bash","-lc","\
+echo 'Preparing data...' && \
+if [ -n \"$HUGGINGFACE_TOKEN\" ]; then echo 'Attempting to log in to Hugging Face' && huggingface-cli login --token \"$HUGGINGFACE_TOKEN\" --add-to-git-credential; else echo 'HUGGINGFACE_TOKEN not set, skipping HF login.'; fi && \
+if [ -n \"$WANDB_TOKEN\" ]; then echo 'Attempting to log in to W&B' && wandb login \"$WANDB_TOKEN\"; else echo 'WANDB_TOKEN not set, skipping W&B login.'; fi && \
+if [ \"$DATASET_TYPE\" != \"hf\" ] && [ -f \"/workspace/input_data/${DATASET_FILENAME}\" ]; then cp \"/workspace/input_data/${DATASET_FILENAME}\" \"/workspace/axolotl/data/${DATASET_FILENAME}\" && cp \"/workspace/input_data/${DATASET_FILENAME}\" \"/workspace/axolotl/${DATASET_FILENAME}\"; fi && \
+echo 'Inspecting axolotl…' && python3 -c \"import axolotl,pkgutil; print('Axolotl __file__:', axolotl.__file__); print('Submodules:', [m.name for m in pkgutil.iter_modules(axolotl.__path__)])\" && \
+echo 'Finding best learning rate…' && python3 /workspace/axolotl/configs/find_lr.py \"${CONFIG_DIR}/${JOB_ID}.yml\" && \
+echo 'Starting training…' && accelerate launch -m axolotl.cli.train \"${CONFIG_DIR}/${JOB_ID}.yml\"\
+"]
+    
 

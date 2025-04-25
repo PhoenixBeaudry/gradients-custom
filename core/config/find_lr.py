@@ -1,6 +1,6 @@
 
 import yaml
-from axolotl.common.datasets import load_datasets
+from axolotl.datasets import load_datasets
 from axolotl.cli.args import TrainerCliArgs
 from axolotl.train import setup_model_and_tokenizer
 import sys
