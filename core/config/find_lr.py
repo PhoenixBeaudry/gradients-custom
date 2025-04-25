@@ -1,60 +1,31 @@
 # scripts/find_lr.py
-import sys
+import sys, os
 from ruamel.yaml import YAML
+from axolotl.utils import Trainer
 from torch_lr_finder import LRFinder
-from axolotl.utils.models import load_tokenizer, load_model
-from axolotl.utils.trainer import setup_trainer, calculate_total_num_steps
-from axolotl.common.datasets import get_train_eval_datasets  # pseudocode for your data loader
 
-def find_best_lr(config_path, num_iter=100, end_lr=10):
-    cfg = YAML().load(open(config_path))
+def find_best_lr(config_path, output_path=None, num_iter=100, end_lr=10):
+    yaml = YAML()
+    cfg = yaml.load(open(config_path))
 
-    # Load tokenizer & (optional) processor
-    tokenizer = load_tokenizer(cfg)
-    processor = None
-    if getattr(cfg, "is_multimodal", False):
-        from axolotl.utils.processor import load_processor
-        processor = load_processor(cfg, tokenizer)
-
-    # Load model + PEFT config
-    model, peft_config = load_model(cfg, tokenizer, processor=processor)
-
-    # Load your datasets
-    train_ds, eval_ds = get_train_eval_datasets(cfg)
-
-    # Compute total steps (for LR schedule, if you need it)
-    total_steps = calculate_total_num_steps(cfg, train_ds, update=False)
-
-    # Build the HuggingFace Trainer via Axolotl’s helper
-    trainer = setup_trainer(
-        cfg, train_ds, eval_ds,
-        model, tokenizer, processor,
-        total_steps, model_ref=None, peft_config=peft_config
+    # instantiate Trainer but only for a handful of steps
+    trainer = Trainer(cfg, dry_run=True)  
+    model, optimizer, criterion, train_loader = (
+        trainer.model, trainer.optimizer, trainer.criterion, trainer.train_dataloader()
     )
 
-    # Run the LR range‐test
-    lr_finder = LRFinder(
-        trainer.model,
-        trainer.optimizer,
-        trainer.compute_loss,
-        device=trainer.args.device
-    )
-    lr_finder.range_test(
-        trainer.get_train_dataloader(),
-        end_lr=end_lr,
-        num_iter=num_iter
-    )
+    lr_finder = LRFinder(model, optimizer, criterion, device=trainer.device)
+    lr_finder.range_test(train_loader, end_lr=end_lr, num_iter=num_iter)
+    best_lr = lr_finder.history["lr"][lr_finder.history["loss"].index(min(lr_finder.history["loss"]))]
+    lr_finder.reset()
 
-    # Pick the LR where loss was minimal
-    losses = lr_finder.history["loss"]
-    lrs    = lr_finder.history["lr"]
-    best_lr = lrs[losses.index(min(losses))]
-    print(f"← Best LR ≃ {best_lr:.2e}")
-
-    # Write it back into your config
+    print(f"➡️  Best lr ≃ {best_lr:.2e}")
+    # write it back
     cfg["learning_rate"] = float(f"{best_lr:.2e}")
-    YAML().dump(cfg, open(config_path, "w"))
-    print(f"✔ Updated {config_path}")
+    out = output_path or config_path
+    yaml.dump(cfg, open(out, "w"))
+    print(f"Updated config at {out}")
 
 if __name__ == "__main__":
-    find_best_lr(sys.argv[1])
+    _, cfg_path = sys.argv
+    find_best_lr(cfg_path)
