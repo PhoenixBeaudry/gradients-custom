@@ -365,6 +365,7 @@ def _adapt_columns_for_dpo_dataset(dataset_path: str, dataset_type: DPODatasetTy
         json.dump(output_data, f, indent=2)
 
 
+
 def start_tuning_container(job: TextJob, hours_to_complete: int):
     logger.info("=" * 80)
     logger.info("STARTING THE TUNING CONTAINER")
@@ -420,12 +421,84 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
     docker_client = docker.from_env()
 
+    # 3) PHASE 0: write & run LR-finder inline
+    lr_py = os.path.join(cst.CONFIG_DIR, f"{job.job_id}_lrfinder.py")
+    with open(lr_py, "w") as f:
+        f.write(f'''
+import os, re, yaml, torch
+from torch_lr_finder import LRFinder
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from torch.utils.data import DataLoader
+
+# load config
+cfg = yaml.safe_load(open("{config_path}"))
+device = "cuda"
+# load model
+model = AutoModelForCausalLM.from_pretrained(
+    cfg["base_model"], device_map="auto",
+    torch_dtype=getattr(torch, cfg.get("bf16","bf16"))
+).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-7)
+criterion = torch.nn.CrossEntropyLoss()
+
+# dummy/small data loader—replace with your real loader if needed
+tok = AutoTokenizer.from_pretrained(cfg["base_model"])
+class DS(torch.utils.data.Dataset):
+    def __init__(self, file, tok, seq): 
+        self.lines = open(file).read().splitlines()[:200]
+        self.tok, self.seq = tok, seq
+    def __len__(self): return len(self.lines)
+    def __getitem__(self, i):
+        ids = self.tok(self.lines[i], truncation=True,
+                       padding="max_length", max_length=self.seq,
+                       return_tensors="pt")["input_ids"].squeeze(0)
+        return dict(input_ids=ids, labels=ids)
+
+dl = DataLoader(DS(
+    "/workspace/input_data/" + cfg["dataset_prepared_path"],
+    tok, cfg.get("sequence_len",512)
+), batch_size=cfg.get("micro_batch_size",2), shuffle=True)
+
+# run the LR finder
+lrf = LRFinder(model, optimizer, criterion, device=device)
+lrf.range_test(dl, end_lr=10, num_iter=50, step_mode="exp")
+# pick steepest downward slope
+lrs, losses = lrf.history["lr"], lrf.history["loss"]
+idx = torch.tensor(losses[5:-5]).argmin() + 5
+best = lrs[idx].item()
+print(f"[LRFINDER] best_lr:{{best:.2e}}")
+lrf.reset()
+''')
+
+    logger.info("Running inline LR-Finder…")
+    lr_logs = docker_client.containers.run(
+        image           = cst.MINER_DOCKER_IMAGE,
+        command         = ["python", f"/workspace/axolotl/configs/{job.job_id}_lrfinder.py"],
+        environment     = docker_env,
+        volumes         = volume_bindings,
+        runtime         = "nvidia",
+        device_requests = device_requests,
+        remove          = True,
+        tty             = True,
+        detach          = False
+    ).decode()
+
+    m = re.search(r"best_lr:([0-9.eE+-]+)", lr_logs)
+    if not m:
+        raise RuntimeError("LR-Finder failed to emit best_lr")
+    best_lr = float(m.group(1))
+    logger.info(f"LR Finder suggests lr={best_lr:.2e}")
+
+    # inject it and re‐save
+    config["learning_rate"] = best_lr
+    save_config(config, config_path)
+
     # --- PHASE 1: quick local-only benchmark ---
     bench_cfg = dict(config)
     bench_cfg.update({
         # measure throughput
         "include_tokens_per_second": True,
-        "max_steps":                 3,
+        "max_steps":                 5,
         "logging_steps":             1,
         # disable external logging and hub interactions
         "wandb_mode":    "disabled",
@@ -468,20 +541,9 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
     tokens_per_step = micro_bs * grad_acc * seq_len * num_gpus
     real_steps      = int(tokens_per_sec * hours_to_complete * 3600 / tokens_per_step)
-    # set max_steps and reasonable warmup/save/eval schedules
-    warmup   = max(1, int(real_steps * 0.1))       # 10% of steps
-    save     = max(1, int(real_steps * 0.1))       # save every 10%
-    evaluate = max(1, int(real_steps * 0.05))      # eval every 5%
-
-    config.update({
-        "max_steps":     real_steps,
-        "warmup_steps":  warmup,
-        "save_steps":    save,
-        "eval_steps":    evaluate,
-    })
+    config["max_steps"] = real_steps
     save_config(config, config_path)
-    logger.info(f"Updated config: max_steps={real_steps}, warmup_steps={warmup}, "
-                f"save_steps={save}, eval_steps={evaluate}")
+    logger.info(f"Updated config with max_steps={real_steps}")
 
     # --- PHASE 2: full training ---
     try:
