@@ -444,29 +444,31 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
                  if k not in ("HUGGINGFACE_TOKEN","WANDB_TOKEN")}
     bench_env["JOB_ID"] = bench_id
 
-    # PHASE 1: spawn bench container in detached mode, then wait & grab logs
-    bench_container = client.containers.run(
-        image           = cst.MINER_DOCKER_IMAGE,
-        environment     = bench_env,
-        volumes         = vols,
-        runtime         = "nvidia",
+    bench_ctn = client.containers.run(
+        image       = cst.MINER_DOCKER_IMAGE,
+        environment = bench_env,
+        volumes     = vols,
+        runtime     = "nvidia",
         device_requests = device_requests,
-        detach          = True,
-        tty             = False,   # no TTY so logs are unbuffered
-        # remove=False so we can inspect even on non-zero exit
+        detach      = True,
+        auto_remove = False,
+        tty         = False,
     )
-    exit_info = bench_container.wait()
-    bench_logs = bench_container.logs(stdout=True, stderr=True).decode()
-    bench_container.remove(force=True)
+
+    # wait for it to exit (with a timeout in seconds if you like)
+    exit_info = bench_ctn.wait(timeout=300)  
+    bench_logs = bench_ctn.logs(stdout=True, stderr=True).decode()
+    bench_ctn.remove(force=True)
 
     if exit_info.get("StatusCode", 1) != 0:
-        logger.warning("Benchmark container exited non-zero, logs:\n%s", bench_logs)
+        logger.warning("Bench container exited %d, logs:\n%s", exit_info.get("StatusCode"), bench_logs)
 
+    # parse tokens/sec
     m = re.search(r"tokens/s:\s*([0-9.]+)", bench_logs)
     if not m:
-        raise RuntimeError(f"Could not parse tokens/sec from bench logs:\n{bench_logs}")
+        raise RuntimeError(f"Couldn't parse tokens/sec:\n{bench_logs}")
     tokens_per_sec = float(m.group(1))
-    logger.info(f"Measured throughput: {tokens_per_sec:.0f} tokens/sec")
+    logger.info("Measured throughput: %.0f tokens/s", tokens_per_sec)
 
     # --- 3) compute full-run schedules ---
     bs     = config.get("micro_batch_size", 1)
