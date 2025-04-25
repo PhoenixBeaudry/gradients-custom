@@ -43,7 +43,6 @@ fp16: false
 tf32: true
 
 gradient_checkpointing: true
-early_stopping_patience: 3
 resume_from_checkpoint:
 local_rank:
 logging_steps: 5
@@ -61,12 +60,9 @@ hub_repo:
 hub_strategy: checkpoint
 hub_token:
 
-early_stopping: true
-evaluation_strategy: steps
-load_best_model_at_end: true
-metric_for_best_model: eval_loss
-greater_is_better: false
-save_total_limit: 1
+early_stopping_patience: 4
+eval_strategy: steps
+save_strategy: best
 save_steps: 20
 eval_steps: 10
 warmup_steps: 20
