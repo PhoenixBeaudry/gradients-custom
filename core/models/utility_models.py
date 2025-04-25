@@ -93,13 +93,14 @@ class Job(BaseModel):
     status: JobStatus = JobStatus.QUEUED
     error_message: str | None = None
     expected_repo_name: str | None = None
-    time_to_complete: int | None = None
+    time_to_complete: int
 
 
 class TextJob(Job):
     dataset: str
     dataset_type: InstructDatasetType | DPODatasetType
     file_format: FileFormat
+    time_to_complete: int
 
 
 class DiffusionJob(Job):
@@ -109,6 +110,7 @@ class DiffusionJob(Job):
         min_length=1,
     )
     model_type: ImageModelType = ImageModelType.SDXL
+    time_to_complete: int
 
 
 class Role(str, Enum):
