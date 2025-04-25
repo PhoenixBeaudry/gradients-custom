@@ -1,50 +1,71 @@
-#!/usr/bin/env python
-import sys
-from pathlib import Path
-
+#!/usr/bin/env python3
+import sys, torch
 from ruamel.yaml import YAML
+from torch.utils.data import DataLoader
+from datasets import load_dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    DataCollatorForLanguageModeling,
+)
 from torch_lr_finder import LRFinder
 
-import axolotl
-
-def find_and_patch_lr(config_path: str, num_iter: int = 100, end_lr: float = 10.0):
+def find_and_patch_lr(cfg_path: str):
     yaml = YAML()
-    cfg = yaml.load(open(config_path))
+    cfg = yaml.load(open(cfg_path))
 
-    # 1) Load datasets metadata for Trainer
-    cli_args = axolotl.cli.args.TrainerCliArgs()
-    dataset_meta = axolotl.common.datasets.load_datasets(cfg, cli_args)
+    # 1️⃣ Load model & tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(cfg["model_name_or_path"], use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(cfg["model_name_or_path"]).to("cuda")
 
-    # 2) Build the Axolotl trainer + model
-    trainer_builder, model, tokenizer, peft_config, processor = axolotl.train.setup_model_and_trainer(
-        cfg, dataset_meta
+    # 2️⃣ Load & tokenize your dataset
+    ds = load_dataset(
+        cfg["dataset_format"],
+        data_files={"train": cfg["train_file"], **({"validation": cfg["valid_file"]} if cfg.get("valid_file") else {})},
+    )
+    def tok(ex): return tokenizer(ex[cfg["text_column"]],
+                                    truncation=True,
+                                    max_length=cfg["max_length"])
+    tokenized = ds.map(tok, batched=True, remove_columns=ds["train"].column_names)
+
+    collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    loader = DataLoader(
+        tokenized["train"],
+        batch_size=cfg["batch_size"],
+        shuffle=True,
+        collate_fn=collator
     )
 
-    # 3) Extract the underlying HF Trainer
-    #    (HFCausalTrainerBuilder / HFRLTrainerBuilder both expose `.trainer`)
-    hf_trainer = trainer_builder.trainer
+    # 3️⃣ Set up optimizer & LR-finder
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-7)
+    criterion = lambda m, batch: m(**batch).loss
 
-    # 4) Run LR range test on a handful of batches
-    optimizer = hf_trainer.optimizer
-    # HuggingFace Trainer uses `compute_loss` under the hood
-    criterion = lambda m, batch: hf_trainer.compute_loss(m, batch)[0]
-    train_loader = hf_trainer.get_train_dataloader()
+    lr_finder = LRFinder(
+        model, optimizer, criterion,
+        device="cuda", 
+        memory_cache=False
+    )
+    lr_finder.range_test(
+        loader,
+        end_lr=cfg["lr_find_end_lr"],
+        num_iter=cfg["lr_find_iterations"]
+    )
 
-    lr_finder = LRFinder(model, optimizer, criterion, device=hf_trainer.args.device)
-    lr_finder.range_test(train_loader, end_lr=end_lr, num_iter=num_iter)
-    best_lr = lr_finder.history["lr"][lr_finder.history["loss"].index(min(lr_finder.history["loss"]))]
+    # 4️⃣ Pick best LR & reset
+    losses = lr_finder.history["loss"]
+    lrs    = lr_finder.history["lr"]
+    best_lr = lrs[losses.index(min(losses))]
     lr_finder.reset()
 
-    print(f"🔍 Best learning rate ≃ {best_lr:.2e}")
+    print(f"\n✅ Best LR ≃ {best_lr:.2e}")
 
-    # 5) Write it back into the YAML
+    # 5️⃣ Patch your YAML
     cfg["learning_rate"] = float(f"{best_lr:.2e}")
-    yaml.dump(cfg, open(config_path, "w"))
-    print(f"✏️  Patched `{config_path}` with learning_rate: {best_lr:.2e}")
-
+    yaml.dump(cfg, open(cfg_path, "w"))
+    print(f"✏️  Wrote learning_rate: {best_lr:.2e} into {cfg_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: find_lr_axolotl.py <path/to/config.yml>")
+        print("Usage: find_lr_generic.py <config.yml>")
         sys.exit(1)
     find_and_patch_lr(sys.argv[1])
