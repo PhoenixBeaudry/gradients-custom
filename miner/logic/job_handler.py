@@ -468,9 +468,20 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
     tokens_per_step = micro_bs * grad_acc * seq_len * num_gpus
     real_steps      = int(tokens_per_sec * hours_to_complete * 3600 / tokens_per_step)
-    config["max_steps"] = real_steps
+    # set max_steps and reasonable warmup/save/eval schedules
+    warmup   = max(1, int(real_steps * 0.1))       # 10% of steps
+    save     = max(1, int(real_steps * 0.1))       # save every 10%
+    evaluate = max(1, int(real_steps * 0.05))      # eval every 5%
+
+    config.update({
+        "max_steps":     real_steps,
+        "warmup_steps":  warmup,
+        "save_steps":    save,
+        "eval_steps":    evaluate,
+    })
     save_config(config, config_path)
-    logger.info(f"Updated config with max_steps={real_steps}")
+    logger.info(f"Updated config: max_steps={real_steps}, warmup_steps={warmup}, "
+                f"save_steps={save}, eval_steps={evaluate}")
 
     # --- PHASE 2: full training ---
     try:
