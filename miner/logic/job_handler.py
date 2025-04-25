@@ -418,6 +418,9 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     client = docker.from_env()
 
     # --- PHASE 1: quick local-only bench ---
+    logger.info("=" * 40)
+    logger.info("RUNNING INITIAL BENCHMARK CONTAINER")
+    logger.info("=" * 40)
     bench_id   = f"{job.job_id}.bench"
     bench_cfg  = dict(config)
     bench_cfg.update({
@@ -455,20 +458,27 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         tty         = False,
     )
 
-    # wait for it to exit (with a timeout in seconds if you like)
-    exit_info = bench_ctn.wait(timeout=300)  
-    bench_logs = bench_ctn.logs(stdout=True, stderr=True).decode()
+    # stream & capture until we see “Training Completed”
+    log_lines = []
+    for raw in bench_ctn.logs(stream=True, stdout=True, stderr=True):
+        line = raw.decode(errors="ignore")
+        log_lines.append(line)
+        # look for Axolotl’s training‐done marker
+        if "Training Completed!!!" in line:
+            logger.info("  bench done—killing container to avoid NCCL hang")
+            bench_ctn.kill()
+            break
+
+    # wait for container to actually exit, then remove
+    bench_ctn.wait()
     bench_ctn.remove(force=True)
 
-    if exit_info.get("StatusCode", 1) != 0:
-        logger.warning("Bench container exited %d, logs:\n%s", exit_info.get("StatusCode"), bench_logs)
-
-    # parse tokens/sec
+    bench_logs = "".join(log_lines)
     m = re.search(r"tokens/s:\s*([0-9.]+)", bench_logs)
     if not m:
-        raise RuntimeError(f"Couldn't parse tokens/sec:\n{bench_logs}")
+        raise RuntimeError(f"Couldn't parse tokens/s from bench logs:\n{bench_logs}")
     tokens_per_sec = float(m.group(1))
-    logger.info("Measured throughput: %.0f tokens/s", tokens_per_sec)
+    logger.info(f"Measured throughput: {tokens_per_sec:.0f} tokens/s")
 
     # --- 3) compute full-run schedules ---
     bs     = config.get("micro_batch_size", 1)
