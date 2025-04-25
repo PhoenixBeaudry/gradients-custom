@@ -370,7 +370,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     logger.info("STARTING THE TUNING CONTAINER")
     logger.info("=" * 80)
 
-    # --- prepare base config + save ---
+    # --- 1) prepare and save base config ---
     config_filename = f"{job.job_id}.yml"
     config_path     = os.path.join(cst.CONFIG_DIR, config_filename)
     config          = _load_and_modify_config(
@@ -383,50 +383,49 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     )
     save_config(config, config_path)
 
-    # --- assemble common Docker setup ---
-    docker_env = DockerEnvironment(
+    # --- 2) common Docker setup ---
+    base_env = DockerEnvironment(
         huggingface_token=cst.HUGGINGFACE_TOKEN,
-        wandb_token=cst.WANDB_TOKEN,
-        job_id=job.job_id,
-        dataset_type=cst.CUSTOM_DATASET_TYPE,
-        dataset_filename=(
+        wandb_token     = cst.WANDB_TOKEN,
+        job_id          = job.job_id,
+        dataset_type    = cst.CUSTOM_DATASET_TYPE,
+        dataset_filename= (
             os.path.basename(job.dataset)
             if job.file_format != FileFormat.HF else ""
         ),
     ).to_dict()
 
-    assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if assigned_gpus:
-        docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
-        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+    # pick up assigned GPUs
+    assigned = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if assigned:
+        base_env["CUDA_VISIBLE_DEVICES"] = assigned
+        device_requests = [ docker.types.DeviceRequest(count=-1,
+                                                      capabilities=[["gpu"]]) ]
     else:
-        device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+        device_requests = [ docker.types.DeviceRequest(count=-1,
+                                                      capabilities=[["gpu"]]) ]
 
-    volume_bindings = {
-        os.path.abspath(cst.CONFIG_DIR): {
-            "bind": "/workspace/axolotl/configs", "mode": "rw"
-        },
-        os.path.abspath(cst.OUTPUT_DIR): {
-            "bind": "/workspace/axolotl/outputs", "mode": "rw"
-        },
-        os.path.expanduser("~/.cache/huggingface"): {
-            "bind": "/root/.cache/huggingface", "mode": "rw"
-        },
+    # volumes
+    vols = {
+        os.path.abspath(cst.CONFIG_DIR): {"bind": "/workspace/axolotl/configs", "mode": "rw"},
+        os.path.abspath(cst.OUTPUT_DIR): {"bind": "/workspace/axolotl/outputs", "mode": "rw"},
+        os.path.expanduser("~/.cache/huggingface"): {"bind": "/root/.cache/huggingface","mode":"rw"},
     }
     if job.file_format != FileFormat.HF:
         ds_dir = os.path.dirname(os.path.abspath(job.dataset))
-        volume_bindings[ds_dir] = {"bind": "/workspace/input_data", "mode": "ro"}
+        vols[ds_dir] = {"bind": "/workspace/input_data", "mode": "ro"}
 
-    docker_client = docker.from_env()
+    client = docker.from_env()
 
-    # --- PHASE 1: quick local-only benchmark ---
-    bench_job_id   = f"{job.job_id}.bench"
-    bench_cfg      = dict(config)
+    # --- PHASE 1: quick local-only bench ---
+    bench_id   = f"{job.job_id}.bench"
+    bench_cfg  = dict(config)
     bench_cfg.update({
+        # tiny run
         "include_tokens_per_second": True,
         "max_steps":                 5,
         "logging_steps":             1,
-        # disable W&B and HF Hub
+        # disable all external logging/pushing
         "wandb_mode":    "disabled",
         "wandb_project": "",
         "wandb_entity":  "",
@@ -436,19 +435,20 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         "hub_model_id":  "",
         "hub_repo":      "",
     })
-    bench_filename = f"{bench_job_id}.yml"
-    bench_path     = os.path.join(cst.CONFIG_DIR, bench_filename)
+    bench_file = f"{bench_id}.yml"
+    bench_path = os.path.join(cst.CONFIG_DIR, bench_file)
     save_config(bench_cfg, bench_path)
 
-    # override env so entrypoint picks up bench config
-    bench_env = docker_env.copy()
-    bench_env["JOB_ID"] = bench_job_id
+    # remove credentials so ENTRYPOINT skips login
+    bench_env = {k:v for k,v in base_env.items()
+                 if k not in ("HUGGINGFACE_TOKEN","WANDB_TOKEN")}
+    bench_env["JOB_ID"] = bench_id
 
-    logger.info("Running quick benchmark (no W&B or HF Hub)…")
-    bench_logs = docker_client.containers.run(
+    logger.info("→ Phase 1: running 5-step bench without W&B/HF logins…")
+    logs = client.containers.run(
         image           = cst.MINER_DOCKER_IMAGE,
         environment     = bench_env,
-        volumes         = volume_bindings,
+        volumes         = vols,
         runtime         = "nvidia",
         device_requests = device_requests,
         remove          = True,
@@ -456,43 +456,40 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         tty             = True,
     ).decode()
 
-    m = re.search(r"tokens/s:\s*([0-9.]+)", bench_logs)
+    m = re.search(r"tokens/s:\s*([0-9.]+)", logs)
     if not m:
-        raise RuntimeError("Could not parse tokens/sec from benchmark logs")
-    tokens_per_sec = float(m.group(1))
-    logger.info(f"Measured throughput: {tokens_per_sec:.0f} tokens/sec")
+        raise RuntimeError("Failed to parse tokens/sec from bench logs")
+    tps = float(m.group(1))
+    logger.info(f"Measured {tps:.0f} tokens/sec")
 
-    # --- compute real max_steps & schedules ---
-    micro_bs = config.get("micro_batch_size", 1)
-    grad_acc = config.get("gradient_accumulation_steps", 1)
-    seq_len  = config.get("sequence_len", 512)
-    num_gpus = len(assigned_gpus.split(",")) if assigned_gpus else 1
+    # --- 3) compute full-run schedules ---
+    bs     = config.get("micro_batch_size", 1)
+    ga     = config.get("gradient_accumulation_steps", 1)
+    sl     = config.get("sequence_len", 512)
+    gpus   = len(assigned.split(",")) if assigned else 1
+    tokps  = bs * ga * sl * gpus
+    max_st = int(tps * hours_to_complete * 3600 / tokps)
 
-    tokens_per_step = micro_bs * grad_acc * seq_len * num_gpus
-    real_steps      = int(tokens_per_sec * hours_to_complete * 3600 / tokens_per_step)
-
-    warmup   = max(1, int(real_steps * 0.1))   # 10%
-    save     = max(1, int(real_steps * 0.1))   # 10%
-    evaluate = max(1, int(real_steps * 0.05))  # 5%
+    # derive warmup/save/eval as fractions
+    wu = max(1, int(max_st * 0.1))
+    sv = max(1, int(max_st * 0.1))
+    ev = max(1, int(max_st * 0.05))
 
     config.update({
-        "max_steps":    real_steps,
-        "warmup_steps": warmup,
-        "save_steps":   save,
-        "eval_steps":   evaluate,
+        "max_steps":    max_st,
+        "warmup_steps": wu,
+        "save_steps":   sv,
+        "eval_steps":   ev,
     })
     save_config(config, config_path)
-    logger.info(
-        f"Config updated: max_steps={real_steps}, "
-        f"warmup_steps={warmup}, save_steps={save}, eval_steps={evaluate}"
-    )
+    logger.info(f"→ Phase 2: max_steps={max_st}, warmup={wu}, save={sv}, eval={ev}")
 
     # --- PHASE 2: full training run ---
     try:
-        container = docker_client.containers.run(
+        full = client.containers.run(
             image           = cst.MINER_DOCKER_IMAGE,
-            environment     = docker_env,
-            volumes         = volume_bindings,
+            environment     = base_env,
+            volumes         = vols,
             runtime         = "nvidia",
             ulimits         = [
                 docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
@@ -504,10 +501,10 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
             tty             = True,
         )
 
-        stream_logs(container)
-        result = container.wait()
-        if result["StatusCode"] != 0:
-            raise DockerException(f"Exit code {result['StatusCode']}")
+        stream_logs(full)
+        res = full.wait()
+        if res["StatusCode"] != 0:
+            raise DockerException(f"Exit code {res['StatusCode']}")
 
     except Exception as e:
         logger.error(f"Error during full training: {e}")
@@ -515,14 +512,13 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
     finally:
         if repo := config.get("hub_model_id"):
-            HfApi(token=cst.HUGGINGFACE_TOKEN).update_repo_settings(
-                repo_id=repo, private=False
-            )
+            HfApi(token=cst.HUGGINGFACE_TOKEN) \
+              .update_repo_settings(repo_id=repo, private=False)
             logger.info(f"Repo {repo} is now public")
 
-        if "container" in locals():
+        if "full" in locals():
             try:
-                container.remove(force=True)
-                logger.info("Container removed")
+                full.remove(force=True)
+                logger.info("Full-training container removed")
             except Exception as e:
                 logger.warning(f"Failed to remove container: {e}")
