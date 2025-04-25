@@ -134,9 +134,10 @@ def create_job_diffusion(
     model: str,
     dataset_zip: str,
     model_type: ImageModelType,
-    expected_repo_name: str | None
+    expected_repo_name: str | None,
+    time_to_complete: int | None
 ):
-    return DiffusionJob(job_id=job_id, model=model, dataset_zip=dataset_zip, model_type=model_type, expected_repo_name=expected_repo_name)
+    return DiffusionJob(job_id=job_id, model=model, dataset_zip=dataset_zip, model_type=model_type, expected_repo_name=expected_repo_name, time_to_complete=time_to_complete)
 
 
 def create_job_text(
@@ -146,6 +147,7 @@ def create_job_text(
     dataset_type: InstructDatasetType,
     file_format: FileFormat,
     expected_repo_name: str | None,
+    time_to_complete: int | None
 ):
     return TextJob(
         job_id=job_id,
@@ -154,6 +156,7 @@ def create_job_text(
         dataset_type=dataset_type,
         file_format=file_format,
         expected_repo_name=expected_repo_name,
+        time_to_complete=time_to_complete,
     )
 
 
@@ -205,6 +208,9 @@ def start_tuning_container_diffusion(job: DiffusionJob):
         huggingface_token=cst.HUGGINGFACE_TOKEN, wandb_token=cst.WANDB_TOKEN, job_id=job.job_id, base_model=job.model_type.value
     ).to_dict()
 
+    docker_env["TIME_TO_COMPLETE_HOURS"] = str(job.time_to_complete)
+    docker_env["PYTHONPATH"] = "/workspace/axolotl:" + docker_env.get("PYTHONPATH","")
+
     # Get assigned GPUs from worker environment
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
     if assigned_gpus:
@@ -238,8 +244,12 @@ def start_tuning_container_diffusion(job: DiffusionJob):
                 "bind": "/dataset/images",
                 "mode": "rw",
             },
+            os.path.abspath("core/callbacks"): {
+                "bind": "/workspace/axolotl/callbacks",
+                "mode": "ro"
+            },
         }
-
+        
         if job.model_type == ImageModelType.FLUX:
             volume_bindings[os.path.dirname(flux_unet_path)] =  {
                 "bind": cst.CONTAINER_FLUX_PATH,
@@ -394,6 +404,8 @@ def start_tuning_container(job: TextJob):
         dataset_filename=os.path.basename(job.dataset) if job.file_format != FileFormat.HF else "",
     ).to_dict()
 
+    docker_env["TIME_TO_COMPLETE_HOURS"] = str(job.time_to_complete)
+    docker_env["PYTHONPATH"] = "/workspace/axolotl:" + docker_env.get("PYTHONPATH","")
     # Get assigned GPUs from worker environment
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
     if assigned_gpus:
@@ -422,11 +434,16 @@ def start_tuning_container(job: TextJob):
                 "bind": "/workspace/axolotl/outputs",
                 "mode": "rw",
             },
+            os.path.abspath("core/callbacks"): {
+                "bind": "/workspace/axolotl/callbacks",
+                "mode": "ro"
+            }
         }
         volume_bindings[ os.path.expanduser("~/.cache/huggingface") ] = {
             "bind": "/root/.cache/huggingface",
             "mode": "rw"
         }
+        
 
         if job.file_format != FileFormat.HF:
             dataset_dir = os.path.dirname(os.path.abspath(job.dataset))

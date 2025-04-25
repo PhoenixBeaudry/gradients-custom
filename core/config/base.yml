@@ -6,6 +6,12 @@ load_in_8bit: false
 load_in_4bit: false
 strict: false
 
+callbacks:
+  - class: callbacks.time_stop.TimeStopCallback
+    init_args:
+      max_time_s: ${TIME_TO_COMPLETE_HOURS} * 3600
+
+
 chat_template: llama3
 datasets:
 dataset_prepared_path:

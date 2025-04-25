@@ -77,6 +77,7 @@ async def tune_model_text(
         dataset_type=train_request.dataset_type,
         file_format=train_request.file_format,
         expected_repo_name=train_request.expected_repo_name,
+        time_to_complete=train_request.hours_to_complete,
     )
     logger.info(f"Created job {job}")
     # worker_config.trainer.enqueue_job(job) # Replaced with RQ
@@ -116,6 +117,7 @@ async def tune_model_diffusion(
         model=train_request.model,
         model_type=train_request.model_type,
         expected_repo_name=train_request.expected_repo_name,
+        time_to_complete=train_request.hours_to_complete,
     )
     logger.info(f"Created job {job}")
     # worker_config.trainer.enqueue_job(job) # Replaced with RQ
