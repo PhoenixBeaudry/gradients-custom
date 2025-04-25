@@ -5,21 +5,18 @@ from pathlib import Path
 from ruamel.yaml import YAML
 from torch_lr_finder import LRFinder
 
-from axolotl.train import setup_model_and_trainer     # :contentReference[oaicite:0]{index=0}
-from common.datasets import load_datasets              # :contentReference[oaicite:1]{index=1}
-from cli.args import TrainerCliArgs                    # :contentReference[oaicite:2]{index=2}
-
+import axolotl
 
 def find_and_patch_lr(config_path: str, num_iter: int = 100, end_lr: float = 10.0):
     yaml = YAML()
     cfg = yaml.load(open(config_path))
 
     # 1) Load datasets metadata for Trainer
-    cli_args = TrainerCliArgs()
-    dataset_meta = load_datasets(cfg, cli_args)
+    cli_args = axolotl.cli.args.TrainerCliArgs()
+    dataset_meta = axolotl.common.datasets.load_datasets(cfg, cli_args)
 
     # 2) Build the Axolotl trainer + model
-    trainer_builder, model, tokenizer, peft_config, processor = setup_model_and_trainer(
+    trainer_builder, model, tokenizer, peft_config, processor = axolotl.train.setup_model_and_trainer(
         cfg, dataset_meta
     )
 
