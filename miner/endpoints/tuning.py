@@ -83,6 +83,7 @@ async def tune_model_text(
     rq_job = rq_queue.enqueue(
         start_tuning_container,
         job,
+        train_request.hours_to_complete,
         job_timeout=int(train_request.hours_to_complete * 3600 * 1.1), # Add timeout buffer
         result_ttl=86400, # Keep result for 1 day
         failure_ttl=86400  # Keep failure info for 1 day
@@ -122,6 +123,7 @@ async def tune_model_diffusion(
     rq_job = rq_queue.enqueue(
         start_tuning_container_diffusion,
         job,
+        train_request.hours_to_complete,
         job_timeout=int(train_request.hours_to_complete * 3600 * 1.1), # Add timeout buffer
         result_ttl=86400, # Keep result for 1 day
         failure_ttl=86400  # Keep failure info for 1 day

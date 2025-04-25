@@ -157,7 +157,7 @@ def create_job_text(
     )
 
 
-def start_tuning_container_diffusion(job: DiffusionJob):
+def start_tuning_container_diffusion(job: DiffusionJob, hours_to_complete: int):
     logger.info("=" * 80)
     logger.info("STARTING THE DIFFUSION TUNING CONTAINER")
     logger.info("=" * 80)
@@ -364,7 +364,7 @@ def _adapt_columns_for_dpo_dataset(dataset_path: str, dataset_type: DPODatasetTy
         json.dump(output_data, f, indent=2)
 
 
-def start_tuning_container(job: TextJob):
+def start_tuning_container(job: TextJob, hours_to_complete: int):
     logger.info("=" * 80)
     logger.info("STARTING THE TUNING CONTAINER")
     logger.info("=" * 80)
