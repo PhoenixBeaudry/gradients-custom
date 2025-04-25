@@ -1,31 +1,53 @@
-# scripts/find_lr.py
-import sys, os
+#!/usr/bin/env python
+import sys
+from pathlib import Path
+
 from ruamel.yaml import YAML
-from axolotl.utils import Trainer
 from torch_lr_finder import LRFinder
 
-def find_best_lr(config_path, output_path=None, num_iter=100, end_lr=10):
+from axolotl.train import setup_model_and_trainer     # :contentReference[oaicite:0]{index=0}
+from common.datasets import load_datasets              # :contentReference[oaicite:1]{index=1}
+from cli.args import TrainerCliArgs                    # :contentReference[oaicite:2]{index=2}
+
+
+def find_and_patch_lr(config_path: str, num_iter: int = 100, end_lr: float = 10.0):
     yaml = YAML()
     cfg = yaml.load(open(config_path))
 
-    # instantiate Trainer but only for a handful of steps
-    trainer = Trainer(cfg, dry_run=True)  
-    model, optimizer, criterion, train_loader = (
-        trainer.model, trainer.optimizer, trainer.criterion, trainer.train_dataloader()
+    # 1) Load datasets metadata for Trainer
+    cli_args = TrainerCliArgs()
+    dataset_meta = load_datasets(cfg, cli_args)
+
+    # 2) Build the Axolotl trainer + model
+    trainer_builder, model, tokenizer, peft_config, processor = setup_model_and_trainer(
+        cfg, dataset_meta
     )
 
-    lr_finder = LRFinder(model, optimizer, criterion, device=trainer.device)
+    # 3) Extract the underlying HF Trainer
+    #    (HFCausalTrainerBuilder / HFRLTrainerBuilder both expose `.trainer`)
+    hf_trainer = trainer_builder.trainer
+
+    # 4) Run LR range test on a handful of batches
+    optimizer = hf_trainer.optimizer
+    # HuggingFace Trainer uses `compute_loss` under the hood
+    criterion = lambda m, batch: hf_trainer.compute_loss(m, batch)[0]
+    train_loader = hf_trainer.get_train_dataloader()
+
+    lr_finder = LRFinder(model, optimizer, criterion, device=hf_trainer.args.device)
     lr_finder.range_test(train_loader, end_lr=end_lr, num_iter=num_iter)
     best_lr = lr_finder.history["lr"][lr_finder.history["loss"].index(min(lr_finder.history["loss"]))]
     lr_finder.reset()
 
-    print(f"➡️  Best lr ≃ {best_lr:.2e}")
-    # write it back
+    print(f"🔍 Best learning rate ≃ {best_lr:.2e}")
+
+    # 5) Write it back into the YAML
     cfg["learning_rate"] = float(f"{best_lr:.2e}")
-    out = output_path or config_path
-    yaml.dump(cfg, open(out, "w"))
-    print(f"Updated config at {out}")
+    yaml.dump(cfg, open(config_path, "w"))
+    print(f"✏️  Patched `{config_path}` with learning_rate: {best_lr:.2e}")
+
 
 if __name__ == "__main__":
-    _, cfg_path = sys.argv
-    find_best_lr(cfg_path)
+    if len(sys.argv) != 2:
+        print("Usage: find_lr_axolotl.py <path/to/config.yml>")
+        sys.exit(1)
+    find_and_patch_lr(sys.argv[1])
