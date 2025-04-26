@@ -132,6 +132,7 @@ def main():
         output_dir=cfg.get("output_dir","/workspace/outputs"),
         per_device_train_batch_size=cfg.get("micro_batch_size",4),
         auto_find_batch_size=True,
+        bf16=True,
         gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
         dataloader_num_workers=8,
         num_train_epochs=cfg.get("num_epochs",1),
