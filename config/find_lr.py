@@ -13,6 +13,10 @@ from axolotl.cli.config import load_cfg
 
 def find_and_patch_lr(config_path: str, num_iter: int = 100, end_lr: float = 10.0):
     cfg = load_cfg(config_path)
+    # Bypass DPO jobs (or any unsupported tokenizer strategy):
+    if getattr(cfg, "rl", None) == "dpo":
+        print("⚠️  Detected DPO training in your config—skipping LR finder.")
+        sys.exit(0)
 
     # 1) Load datasets metadata for Trainer
     cli_args = TrainerCliArgs()
