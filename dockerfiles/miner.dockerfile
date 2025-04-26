@@ -8,9 +8,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install mlflow protobuf huggingface_hub wandb transformers accelerate peft trl datasets sentencepiece liger-kernel flash-attn
-
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install ninja packaging
+RUN pip install mlflow protobuf huggingface_hub wandb transformers accelerate peft trl datasets sentencepiece liger-kernel
+RUN pip install flash-attn --no-build-isolation
 
 WORKDIR /workspace
 RUN mkdir -p /workspace/configs /workspace/outputs /workspace/data /workspace/input_data
