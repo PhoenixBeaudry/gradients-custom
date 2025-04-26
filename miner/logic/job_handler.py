@@ -363,15 +363,14 @@ def _adapt_columns_for_dpo_dataset(dataset_path: str, dataset_type: DPODatasetTy
     with open(dataset_path, 'w') as f:
         json.dump(output_data, f, indent=2)
 
-
 def start_tuning_container(job: TextJob, hours_to_complete: int):
     logger.info("=" * 80)
     logger.info("STARTING THE TUNING CONTAINER")
     logger.info("=" * 80)
 
+    # Prepare config file
     config_filename = f"{job.job_id}.yml"
     config_path = os.path.join(cst.CONFIG_DIR, config_filename)
-
     config = _load_and_modify_config(
         job.dataset,
         job.model,
@@ -383,9 +382,9 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     save_config(config, config_path)
 
     logger.info(config)
-
     logger.info(os.path.basename(job.dataset) if job.file_format != FileFormat.HF else "")
 
+    # Build environment dict (HuggingFace, W&B, etc.)
     docker_env = DockerEnvironment(
         huggingface_token=cst.HUGGINGFACE_TOKEN,
         wandb_token=cst.WANDB_TOKEN,
@@ -394,17 +393,14 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         dataset_filename=os.path.basename(job.dataset) if job.file_format != FileFormat.HF else "",
     ).to_dict()
 
-    # Get assigned GPUs from worker environment
+    # GPU assignment
     assigned_gpus = os.environ.get("CUDA_VISIBLE_DEVICES")
     if assigned_gpus:
         logger.info(f"Worker assigned GPUs: {assigned_gpus}")
-        # Pass GPU assignment into the container environment
         docker_env["CUDA_VISIBLE_DEVICES"] = assigned_gpus
-        # Revert device_requests to allow container to see all assigned GPUs, rely on env var inside.
         device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
     else:
-        logger.warning("CUDA_VISIBLE_DEVICES not set for worker, container will see all GPUs.")
-        # Default: request all GPUs if not specified
+        logger.warning("CUDA_VISIBLE_DEVICES not set; container will see all GPUs.")
         device_requests = [docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
 
     logger.info(f"Docker environment: {docker_env}")
@@ -413,69 +409,62 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     try:
         docker_client = docker.from_env()
 
+        # Volume mounts: configs, outputs, HF cache, input_data
         volume_bindings = {
             os.path.abspath(cst.CONFIG_DIR): {
-                "bind": "/workspace/axolotl/configs",
+                "bind": "/workspace/configs",
                 "mode": "rw",
             },
             os.path.abspath(cst.OUTPUT_DIR): {
-                "bind": "/workspace/axolotl/outputs",
+                "bind": "/workspace/outputs",
                 "mode": "rw",
             },
-        }
-        volume_bindings[ os.path.expanduser("~/.cache/huggingface") ] = {
-            "bind": "/root/.cache/huggingface",
-            "mode": "rw"
+            os.path.expanduser("~/.cache/huggingface"): {
+                "bind": "/root/.cache/huggingface",
+                "mode": "rw",
+            },
         }
 
         if job.file_format != FileFormat.HF:
             dataset_dir = os.path.dirname(os.path.abspath(job.dataset))
-            logger.info(dataset_dir)
             volume_bindings[dataset_dir] = {
                 "bind": "/workspace/input_data",
                 "mode": "ro",
             }
 
-        if isinstance(job.dataset_type, DPODatasetType):
-            if job.file_format == FileFormat.JSON:
-                _adapt_columns_for_dpo_dataset(job.dataset, job.dataset_type, True)
-
-
+        # Launch Unsloth container
         container = docker_client.containers.run(
-            image=cst.MINER_DOCKER_IMAGE,
+            image=cst.UNSLOTH_DOCKER_IMAGE,
             environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",
             ulimits=[
                 docker.types.Ulimit(name="memlock", soft=-1, hard=-1),
-                docker.types.Ulimit(name="stack",  soft=67108864, hard=67108864),
+                docker.types.Ulimit(name="stack", soft=67108864, hard=67108864),
             ],
             shm_size="64g",
-            device_requests=device_requests, # Use specific GPUs if assigned
+            device_requests=device_requests,
             detach=True,
             tty=True,
         )
 
-        # Use the shared stream_logs function
         stream_logs(container)
-
         result = container.wait()
-
         if result["StatusCode"] != 0:
             raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
 
     except Exception as e:
-        logger.error(f"Error processing job: {str(e)}")
+        logger.error(f"Error processing job: {e}")
         raise
 
     finally:
+        # Make HF repo public if created
         repo = config.get("hub_model_id", None)
         if repo:
             hf_api = HfApi(token=cst.HUGGINGFACE_TOKEN)
             hf_api.update_repo_settings(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
             logger.info(f"Successfully made repository {repo} public")
-
-        if "container" in locals():
+        if 'container' in locals():
             try:
                 container.remove(force=True)
                 logger.info("Container removed")
