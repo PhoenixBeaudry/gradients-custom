@@ -157,6 +157,7 @@ def main():
         report_to=["wandb"] if wandb_project else [],
         logging_dir=cfg.get("logging_dir","./logs"),
         run_name=cfg.get("wandb_run"),
+        use_liger_kernel=True,
     )
 
     callbacks = []
