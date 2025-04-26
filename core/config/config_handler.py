@@ -22,8 +22,8 @@ def create_dataset_entry(
 ) -> dict:
     dataset_entry = {"path": dataset}
 
-    if file_format == FileFormat.JSON:
-        dataset_entry = {"path": f"/workspace/input_data/{os.path.basename(dataset)}"}
+    #if file_format == FileFormat.JSON:
+    #    dataset_entry = {"path": f"/workspace/input_data/{os.path.basename(dataset)}"}
 
     if isinstance(dataset_type, InstructDatasetType):
         instruct_type_dict = {key: value for key, value in dataset_type.model_dump().items() if value is not None}
