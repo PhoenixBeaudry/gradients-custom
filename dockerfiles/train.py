@@ -88,7 +88,7 @@ def load_dpo_datasets(cfg, tokenizer):
 
 
 def main():
-    accelerator = Accelerator()
+    
     args = parse_args()
     # Setup logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -109,6 +109,8 @@ def main():
         logger.info("Initialized W&B project %s", wandb_project)
     else:
         logger.info("No W&B project configured, skipping wandb.init()")
+
+    accelerator = Accelerator(log_with="wandb")
 
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
@@ -155,7 +157,6 @@ def main():
         metric_for_best_model=cfg.get("metric_for_best_model","loss"),
         greater_is_better=bool(cfg.get("greater_is_better",False)),
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
-        report_to=["wandb"] if wandb_project else [],
         logging_dir=cfg.get("logging_dir","./logs"),
         push_to_hub=True,
         run_name=cfg.get("wandb_run"),
