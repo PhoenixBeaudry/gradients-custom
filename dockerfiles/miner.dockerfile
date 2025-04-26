@@ -22,13 +22,22 @@ RUN mkdir -p /root/.aws && \
 # Copy the Unsloth launcher
 COPY dockerfiles/unsloth_train.py /workspace/unsloth_train.py
 
-# Entrypoint: login then run training
-ENTRYPOINT ["bash", "-lc"]
-CMD "\
-  if [ -n \"$HUGGINGFACE_TOKEN\" ]; then huggingface-cli login --token \"$HUGGINGFACE_TOKEN\"; fi && \
-  if [ -n \"$WANDB_TOKEN\" ]; then wandb login \"$WANDB_TOKEN\"; fi && \
-  if [ \"$DATASET_TYPE\" != \"hf\" ] && [ -f \"/workspace/input_data/${DATASET_FILENAME}\" ]; then \
-    cp /workspace/input_data/${DATASET_FILENAME} /workspace/data/${DATASET_FILENAME}; \
-  fi && \
-  python3 /workspace/unsloth_train.py --config ${CONFIG_DIR}/${JOB_ID}.yml \
-"
+CMD echo 'Preparing data...' && \
+    if [ -n "$HUGGINGFACE_TOKEN" ]; then \
+    echo "Attempting to log in to Hugging Face" && \
+    huggingface-cli login --token "$HUGGINGFACE_TOKEN" --add-to-git-credential; \
+    else \
+    echo "HUGGINGFACE_TOKEN is not set. Skipping Hugging Face login."; \
+    fi && \
+    if [ -n "$WANDB_TOKEN" ]; then \
+    echo "Attempting to log in to W&B" && \
+    wandb login "$WANDB_TOKEN"; \
+    else \
+    echo "WANDB_TOKEN is not set. Skipping W&B login."; \
+    fi && \
+    if [ "$DATASET_TYPE" != "hf" ] && [ -f "/workspace/input_data/${DATASET_FILENAME}" ]; then \
+    cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/data/${DATASET_FILENAME}; \
+    cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
+    fi && \
+    echo 'Starting training command' && \
+    python3 /workspace/unsloth_train.py --config ${CONFIG_DIR}/${JOB_ID}.yml
