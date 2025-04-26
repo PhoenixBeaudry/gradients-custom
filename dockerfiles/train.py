@@ -136,6 +136,7 @@ def main():
         train_ds, eval_ds = load_sft_datasets(cfg, tokenizer)
 
     training_args = TrainingArguments(
+        processing_class=tokenizer,
         output_dir=cfg.get("output_dir","/workspace/outputs"),
         per_device_train_batch_size=cfg.get("micro_batch_size",4),
         gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
@@ -162,6 +163,7 @@ def main():
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
 
     if rl_mode:
+        logger.info("Loading DPO Trainer")
         if DPOTrainer is None:
             raise ImportError("trl required for DPO training")
         ref_model = AutoModelForCausalLM.from_pretrained(
@@ -183,6 +185,7 @@ def main():
             callbacks=callbacks,
         )
     else:
+        logger.info("Loading SFT Trainer")
         data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
         trainer = Trainer(
             model=model,
