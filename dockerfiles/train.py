@@ -98,20 +98,8 @@ def main():
         cfg = yaml.safe_load(f)
     logger.info("Loaded configuration from %s", args.config)
 
-    # Initialize W&B
-    wandb_project = cfg.get("wandb_project")
-    if wandb_project:
-        wandb.init(
-            project=wandb_project,
-            name=cfg.get("wandb_run"),
-            config=cfg,
-        )
-        logger.info("Initialized W&B project %s", wandb_project)
-    else:
-        logger.info("No W&B project configured, skipping wandb.init()")
-
     accelerator = Accelerator(log_with="wandb")
-
+    accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
     model = AutoModelForCausalLM.from_pretrained(
