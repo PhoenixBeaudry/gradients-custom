@@ -33,7 +33,7 @@ micro_batch_size: 2
 num_epochs: 3
 optimizer: adamw_torch_fused
 lr_scheduler: cosine
-learning_rate: 1e-4
+learning_rate: 5e-5
 group_by_length: true
 
 train_on_inputs: false
