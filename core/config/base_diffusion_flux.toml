@@ -42,11 +42,13 @@ network_args = [ "train_double_block_indices=all", "train_single_block_indices=a
 network_dim = 128                                                                                                                                                              
 network_module = "networks.lora_flux"                                                                                                                                          
 noise_offset_type = "Original"                                                                                                                                                 
-optimizer_type = "adamw_torch_fused"
+optimizer_type = "Adafactor"
 optimizer_args = [
-  "weight_decay=0.01",
-  "warmup_init=true",
-]                                                                                                                                                  
+  "scale_parameter=True",
+  "relative_step=True",
+  "warmup_init=True",
+  "weight_decay=0.01"
+]                                                                                                                                                
 output_dir = "/app/outputs"                                                                                                                                          
 output_name = "last"                                                                                                                                                 
 pretrained_model_name_or_path = "/app/flux/unet.safetensors"                                                                                                                  
