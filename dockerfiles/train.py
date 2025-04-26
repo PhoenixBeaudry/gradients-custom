@@ -73,22 +73,30 @@ def load_dpo_datasets(cfg, tokenizer):
         raw = load_dataset(ds_type, data_files={"train": ds_cfg["path"]}, split=ds_cfg.get("split", "train"))
     else:
         raw = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
+    #  ← ADD THIS: rename your CSV headers to what DPOTrainer expects:
+    raw = raw.rename_columns({
+        "gen_questions": "prompt",
+        "Positive":      "chosen",
+        "Hard Negative": "rejected",
+    })
+
+    # now map & tokenize exactly like your dpomap, and drop those original cols:
     def dpomap(ex):
-        msgs = ex.get("messages") or ex.get("chat") or []
-        query = next((m["content"] for m in msgs if m.get("role") == "user"), None)
-        replies = [m["content"] for m in msgs if m.get("role") == "assistant"]
-        if len(replies) < 2:
-            raise ValueError("Expected at least two assistant replies for DPO ChatML")
-        chosen, rejected = replies[0], replies[1]
-        q = tokenizer(query, truncation=True, max_length=cfg.get("sequence_len",2048))
-        c = tokenizer(chosen, truncation=True, max_length=cfg.get("sequence_len",2048))
-        r = tokenizer(rejected, truncation=True, max_length=cfg.get("sequence_len",2048))
+        q = tokenizer(ex["prompt"],    truncation=True, max_length=cfg["sequence_len"])
+        c = tokenizer(ex["chosen"],    truncation=True, max_length=cfg["sequence_len"])
+        r = tokenizer(ex["rejected"],  truncation=True, max_length=cfg["sequence_len"])
         return {
-            "input_ids": q["input_ids"], "attention_mask": q["attention_mask"],
-            "chosen_input_ids": c["input_ids"], "chosen_attention_mask": c["attention_mask"],
-            "rejected_input_ids": r["input_ids"], "rejected_attention_mask": r["attention_mask"],
+            "input_ids":              q["input_ids"],
+            "attention_mask":         q["attention_mask"],
+            "chosen_input_ids":       c["input_ids"],
+            "chosen_attention_mask":  c["attention_mask"],
+            "rejected_input_ids":     r["input_ids"],
+            "rejected_attention_mask":r["attention_mask"],
         }
-    train_ds = raw
+
+    train_ds = raw.map(dpomap,
+                       batched=False,
+                       remove_columns=["prompt", "chosen", "rejected"])
     return train_ds, None
 
 
