@@ -68,7 +68,11 @@ def load_sft_datasets(cfg, tokenizer):
 
 def load_dpo_datasets(cfg, tokenizer):
     ds_cfg = cfg["datasets"][0]
-    raw = load_dataset(ds_cfg.get("path"), split=ds_cfg.get("split", "train"))
+    ds_type = ds_cfg.get("ds_type", ds_cfg.get("type", "hf")).lower()
+    if ds_type in ("json", "csv", "text"):
+        raw = load_dataset(ds_type, data_files={"train": ds_cfg["path"]}, split=ds_cfg.get("split", "train"))
+    else:
+        raw = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
     def dpomap(ex):
         msgs = ex.get("messages") or ex.get("chat") or []
         query = next((m["content"] for m in msgs if m.get("role") == "user"), None)
