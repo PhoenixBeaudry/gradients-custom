@@ -157,6 +157,8 @@ def main():
         report_to=["wandb"] if wandb_project else [],
         logging_dir=cfg.get("logging_dir","./logs"),
         run_name=cfg.get("wandb_run"),
+        hub_model_id=cfg.get("hub_model_id"),
+        hub_strategy="every_save",
         use_liger_kernel=True,
     )
 
