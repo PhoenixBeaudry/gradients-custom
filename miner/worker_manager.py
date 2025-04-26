@@ -11,7 +11,7 @@ import signal
 import os
 import sys
 from fiber.logging_utils import get_logger
-from core.constants import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD # Import Redis config
+import core.constants as cst
 
 logger = get_logger(__name__)
 
@@ -58,12 +58,12 @@ def signal_handler(sig, frame):
 def start_workers():
     """Launch RQ worker processes, one for each GPU pair."""
     # Construct Redis URL, including password if it exists
-    if REDIS_PASSWORD:
-        redis_url = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+    if cst.REDIS_PASSWORD:
+        redis_url = f"redis://:{cst.REDIS_PASSWORD}@{cst.REDIS_HOST}:{cst.REDIS_PORT}/0"
     else:
         redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
         
-    logger.info(f"Starting {len(GPU_PAIRS)} RQ workers for queue '{QUEUE_NAME}' on Redis at {REDIS_HOST}:{REDIS_PORT}...") # Don't log password
+    logger.info(f"Starting {len(GPU_PAIRS)} RQ workers for queue '{QUEUE_NAME}' on Redis at {cst.REDIS_HOST}:{cst.REDIS_PORT}...") # Don't log password
 
     for gpu_pair in GPU_PAIRS:
         env = os.environ.copy()
