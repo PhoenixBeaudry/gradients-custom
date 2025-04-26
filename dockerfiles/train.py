@@ -101,7 +101,7 @@ def main():
     accelerator = Accelerator(log_with="wandb")
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=cfg.get("hub_token"))
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         attn_implementation="flash_attention_2",
