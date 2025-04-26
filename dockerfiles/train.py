@@ -139,7 +139,7 @@ def main():
          # warm up the first 500 steps by default (≈1% of most jobs)
         warmup_steps=cfg.get("warmup_steps", 25),
         # use cosine decay after warmup
-        lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE),
+        lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE_WITH_RESTARTS),
         max_steps=cfg.get("max_steps",-1),
         logging_steps=cfg.get("logging_steps",100),
         eval_strategy="steps" if eval_ds else "no",
