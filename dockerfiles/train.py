@@ -13,6 +13,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling,
     EarlyStoppingCallback,
+    SchedulerType,
 )
 import torch
 
@@ -135,7 +136,10 @@ def main():
         num_train_epochs=cfg.get("num_epochs",1),
         learning_rate=float(cfg.get("learning_rate",5e-5)),
         optim=cfg.get("optimizer","adamw_torch_fused"),
-        warmup_steps=cfg.get("warmup_steps",0),
+         # warm up the first 500 steps by default (≈1% of most jobs)
+        warmup_steps=cfg.get("warmup_steps", 25),
+        # use cosine decay after warmup
+        lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE),
         max_steps=cfg.get("max_steps",-1),
         logging_steps=cfg.get("logging_steps",100),
         eval_strategy="steps" if eval_ds else "no",
