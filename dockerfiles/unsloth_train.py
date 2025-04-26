@@ -21,14 +21,8 @@ def main():
     hf_token = cfg.get("hub_token", "null")
 
     # Dataset loading
-    ds_cfg = cfg.get("datasets", {})
-    if ds_cfg.get("type", "hf") == "hf":
-        dataset = load_dataset(ds_cfg[0]["path"], split=ds_cfg.get("split", "train"))
-    else:
-        filename = os.environ["DATASET_FILENAME"]
-        path = f"/workspace/input_data/{filename}"
-        fmt = ds_cfg.get("format", "json")
-        dataset = load_dataset(fmt, data_files={"train": path})
+    dataset = load_dataset(cfg["train_data_dir"])
+
 
     # Model + tokenizer
     mcfg = cfg["model"]
