@@ -1,8 +1,15 @@
 FROM --platform=linux/amd64 pytorch/pytorch:2.7.0-cuda11.8-cudnn9-runtime
 
-# Install dependencies and Unsloth
+USER root
+
+# install git so that `huggingface-cli` can call it
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install mlflow protobuf huggingface_hub wandb transformers accelerate
+    pip install mlflow protobuf huggingface_hub wandb transformers accelerate peft trl datasets sentencepiece
 
 
 WORKDIR /workspace
@@ -36,8 +43,8 @@ CMD echo 'Preparing data...' && \
     echo "WANDB_TOKEN is not set. Skipping W&B login."; \
     fi && \
     if [ "$DATASET_TYPE" != "hf" ] && [ -f "/workspace/input_data/${DATASET_FILENAME}" ]; then \
-    cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/data/${DATASET_FILENAME}; \
-    cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
+    cp /workspace/input_data/${DATASET_FILENAME} /workspace/data/${DATASET_FILENAME}; \
+    cp /workspace/input_data/${DATASET_FILENAME} /workspace/${DATASET_FILENAME}; \
     fi && \
     echo 'Starting training command' && \
     accelerate launch --multi_gpu /workspace/train.py --config ${CONFIG_DIR}/${JOB_ID}.yml

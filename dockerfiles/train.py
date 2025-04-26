@@ -101,7 +101,20 @@ def main():
     hf_token = cfg.get("hub_token") or os.environ.get("HUGGINGFACE_TOKEN")
 
     model_name = cfg["base_model"]
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, use_auth_token=hf_token)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            use_fast=True,
+            use_auth_token=hf_token
+        )
+    except ValueError:
+        # fallback to slow SP tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            use_fast=False,
+            use_auth_token=hf_token
+        )
+        
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         use_auth_token=hf_token,
