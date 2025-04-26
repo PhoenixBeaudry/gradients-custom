@@ -155,8 +155,10 @@ def main():
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
         report_to=["wandb"] if wandb_project else [],
         logging_dir=cfg.get("logging_dir","./logs"),
+        push_to_hub=True,
         run_name=cfg.get("wandb_run"),
         hub_model_id=cfg.get("hub_model_id"),
+        hub_token=cfg.get("hub_token"),
         hub_strategy="every_save",
         use_liger_kernel=True,
     )

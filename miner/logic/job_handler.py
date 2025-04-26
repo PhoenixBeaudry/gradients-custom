@@ -429,7 +429,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
             dataset_dir = os.path.dirname(os.path.abspath(job.dataset))
             volume_bindings[dataset_dir] = {
                 "bind": "/workspace/input_data",
-                "mode": "ro",
+                "mode": "rw",
             }
 
         # Launch Unsloth container
