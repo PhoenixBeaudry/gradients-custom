@@ -2,8 +2,10 @@ FROM --platform=linux/amd64 axolotlai/axolotl:main-20241128-py3.11-cu124-2.5.1
 
 # Install dependencies and Unsloth
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install mlflow protobuf huggingface_hub wandb && \
-    pip install "unsloth[cu124-torch250] @ git+https://github.com/unslothai/unsloth.git"
+    pip install mlflow protobuf huggingface_hub wandb
+
+RUN pip install --upgrade "transformers>=4.34.0"
+RUN pip install "unsloth[cu124-torch250] @ git+https://github.com/unslothai/unsloth.git"
 
 WORKDIR /workspace
 RUN mkdir -p /workspace/configs /workspace/outputs /workspace/data /workspace/input_data
