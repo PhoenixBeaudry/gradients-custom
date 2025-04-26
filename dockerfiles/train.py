@@ -105,19 +105,19 @@ def main():
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             use_fast=True,
-            use_auth_token=hf_token
+            token=hf_token
         )
     except ValueError:
         # fallback to slow SP tokenizer
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             use_fast=False,
-            use_auth_token=hf_token
+            token=hf_token
         )
         
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        use_auth_token=hf_token,
+        token=hf_token,
         load_in_8bit=bool(cfg.get("load_in_8bit", False)),
         torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
         device_map="auto" if torch.cuda.device_count()>1 else None,
@@ -153,7 +153,7 @@ def main():
         warmup_steps=cfg.get("warmup_steps",0),
         max_steps=cfg.get("max_steps",-1),
         logging_steps=cfg.get("logging_steps",100),
-        evaluation_strategy="steps" if eval_ds else "no",
+        eval_strategy="steps" if eval_ds else "no",
         save_strategy="steps", eval_steps=cfg.get("eval_steps"),
         save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
         load_best_model_at_end=bool(cfg.get("load_best_model_at_end",False)),
@@ -169,7 +169,7 @@ def main():
     if rl_mode:
         if DPOTrainer is None:
             raise ImportError("trl required for DPO training")
-        ref_model = AutoModelForCausalLM.from_pretrained(model_name, use_auth_token=hf_token,
+        ref_model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token,
                                                         device_map="auto" if torch.cuda.device_count()>1 else None)
         ref_model.eval()
         trainer = DPOTrainer(
