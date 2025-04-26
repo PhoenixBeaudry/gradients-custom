@@ -25,8 +25,7 @@ def main():
     if ds_cfg.get("type", "hf") == "hf":
         dataset = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
     else:
-        filename = os.environ["DATASET_FILENAME"]
-        path = f"/workspace/input_data/{filename}"
+        path = ds_cfg["train_data_dir"]
         fmt = ds_cfg.get("format", "json")
         dataset = load_dataset(fmt, data_files={"train": path})
 

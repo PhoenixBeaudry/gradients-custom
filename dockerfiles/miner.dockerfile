@@ -6,6 +6,7 @@ RUN pip install --upgrade pip setuptools wheel && \
 
 RUN pip install --upgrade "transformers>=4.34.0"
 RUN pip install "unsloth[cu124-torch250] @ git+https://github.com/unslothai/unsloth.git"
+RUN pip install --upgrade git+https://github.com/pytorch/ao.git@main
 
 WORKDIR /workspace
 RUN mkdir -p /workspace/configs /workspace/outputs /workspace/data /workspace/input_data
