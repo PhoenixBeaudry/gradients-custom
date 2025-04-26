@@ -16,7 +16,7 @@ def find_and_patch_lr(config_path: str, num_iter: int = 100, end_lr: float = 10.
 
     # 1) Load datasets metadata for Trainer
     cli_args = TrainerCliArgs()
-    dataset_meta = load_datasets(cfg, cli_args)
+    dataset_meta = load_datasets(cfg=cfg, cli_args=cli_args)
 
     # 2) Build the Axolotl trainer + model
     trainer_builder, model, tokenizer, peft_config, processor = setup_model_and_trainer(
