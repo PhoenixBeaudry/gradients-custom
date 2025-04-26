@@ -43,7 +43,7 @@ fp16: false
 tf32: true
 
 gradient_checkpointing: true
-resume_from_checkpoint: true
+resume_from_checkpoint:
 local_rank:
 logging_steps: 5
 flash_attention: true
