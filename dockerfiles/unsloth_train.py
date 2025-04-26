@@ -18,18 +18,7 @@ def main():
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
-    # Hugging Face login
-    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
-    if hf_token:
-        from huggingface_hub import login
-        login(token=hf_token)
-        print("HF CLI logged in.")
-
-    # W&B login
-    wandb_token = os.environ.get("WANDB_TOKEN")
-    if wandb_token:
-        import wandb; wandb.login(key=wandb_token)
-        print("W&B logged in.")
+    hf_token = cfg.get("hub_token", "null")
 
     # Dataset loading
     ds_cfg = cfg.get("dataset", {})

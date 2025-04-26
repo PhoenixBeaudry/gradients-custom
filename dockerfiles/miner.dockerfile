@@ -20,7 +20,7 @@ RUN mkdir -p /root/.aws && \
     echo "[default]\nregion=us-east-1" > /root/.aws/config
 
 # Copy the Unsloth launcher
-COPY core/configs/unsloth_train.py /workspace/unsloth_train.py
+COPY dockerfiles/unsloth_train.py /workspace/unsloth_train.py
 
 # Entrypoint: login then run training
 ENTRYPOINT ["bash", "-lc"]
