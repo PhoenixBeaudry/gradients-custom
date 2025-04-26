@@ -16,7 +16,6 @@ from transformers import (
 )
 import torch
 
-accelerator = Accelerator()
 # Optional: require peft for LoRA adapters
 try:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -89,6 +88,7 @@ def load_dpo_datasets(cfg, tokenizer):
 
 
 def main():
+    accelerator = Accelerator()
     args = parse_args()
     # Setup logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
