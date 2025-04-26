@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import os
-# disable dtensor fallback in Accelerate / PyTorch distributed
-os.environ.setdefault("ACCELERATE_DISABLE_DTENSOR","1")
 import yaml
 import argparse
 import logging

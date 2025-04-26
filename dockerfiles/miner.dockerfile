@@ -29,7 +29,6 @@ RUN mkdir -p /root/.aws && \
 
 # Copy the Unsloth launcher
 COPY dockerfiles/train.py /workspace/train.py
-ENV ACCELERATE_DISABLE_DTENSOR=1
 CMD echo 'Preparing data...' && \
     if [ -n "$HUGGINGFACE_TOKEN" ]; then \
     echo "Attempting to log in to Hugging Face" && \
