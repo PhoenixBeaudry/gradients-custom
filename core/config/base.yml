@@ -38,7 +38,7 @@ group_by_length: true
 
 train_on_inputs: false
 group_by_length: true
-bf16: auto
+bf16: true
 fp16: false
 tf32: true
 
