@@ -7,12 +7,12 @@ from torch_lr_finder import LRFinder
 
 from axolotl.train import setup_model_and_trainer 
 from axolotl.common.datasets import load_datasets 
-from axolotl.cli.args import TrainerCliArgs 
+from axolotl.cli.args import TrainerCliArgs
+from axolotl.cli.config import load_cfg 
 
 
 def find_and_patch_lr(config_path: str, num_iter: int = 100, end_lr: float = 10.0):
-    yaml = YAML()
-    cfg = yaml.load(open(config_path))
+    cfg = load_cfg(config_path)
 
     # 1) Load datasets metadata for Trainer
     cli_args = TrainerCliArgs()
