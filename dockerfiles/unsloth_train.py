@@ -23,7 +23,7 @@ def main():
     # Dataset loading
     ds_cfg = cfg.get("datasets", {})
     if ds_cfg.get("type", "hf") == "hf":
-        dataset = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
+        dataset = load_dataset(ds_cfg[0]["path"], split=ds_cfg.get("split", "train"))
     else:
         filename = os.environ["DATASET_FILENAME"]
         path = f"/workspace/input_data/{filename}"
