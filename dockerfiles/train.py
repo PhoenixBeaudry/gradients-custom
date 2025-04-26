@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+# disable dtensor fallback in Accelerate / PyTorch distributed
+os.environ.setdefault("ACCELERATE_DISABLE_DTENSOR","1")
 import yaml
 import argparse
 import logging
@@ -101,7 +103,7 @@ def main():
     if wandb_project:
         wandb.init(
             project=wandb_project,
-            name=cfg.get("wandb_run_name"),
+            name=cfg.get("wandb_run"),
             config=cfg,
         )
         logger.info("Initialized W&B project %s", wandb_project)
@@ -112,10 +114,10 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
+        attn_implementation="flash_attention_2",
         use_auth_token=cfg.get("hub_token"),
         load_in_8bit=bool(cfg.get("load_in_8bit", False)),
         torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
-        device_map="auto" if torch.cuda.device_count()>1 else None,
     )
     if cfg.get("adapter")=="lora":
         if get_peft_model is None:
@@ -136,7 +138,6 @@ def main():
         train_ds, eval_ds = load_sft_datasets(cfg, tokenizer)
 
     training_args = TrainingArguments(
-        processing_class=tokenizer,
         output_dir=cfg.get("output_dir","/workspace/outputs"),
         per_device_train_batch_size=cfg.get("micro_batch_size",4),
         gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
@@ -155,7 +156,7 @@ def main():
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
         report_to=["wandb"] if wandb_project else [],
         logging_dir=cfg.get("logging_dir","./logs"),
-        run_name=cfg.get("wandb_run_name"),
+        run_name=cfg.get("wandb_run"),
     )
 
     callbacks = []
@@ -169,7 +170,6 @@ def main():
         ref_model = AutoModelForCausalLM.from_pretrained(
             model_name,
             use_auth_token=cfg.get("hub_token"),
-            device_map="auto" if torch.cuda.device_count()>1 else None,
         )
         ref_model.eval()
         trainer = DPOTrainer(
@@ -178,7 +178,7 @@ def main():
             args=training_args,
             train_dataset=train_ds,
             eval_dataset=eval_ds,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             beta=cfg.get("beta",0.1),
             max_length=cfg.get("sequence_len",2048),
             max_prompt_length=cfg.get("sequence_len",2048),
@@ -194,7 +194,7 @@ def main():
             eval_dataset=eval_ds,
             data_collator=data_collator,
             callbacks=callbacks,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
         )
     logger.info("Starting training...")
     trainer.train()

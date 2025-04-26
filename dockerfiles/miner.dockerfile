@@ -9,7 +9,7 @@ RUN apt-get update \
 
 # Install dependencies
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install mlflow protobuf huggingface_hub wandb transformers accelerate peft trl datasets sentencepiece
+    pip install mlflow protobuf huggingface_hub wandb transformers accelerate peft trl datasets sentencepiece liger-kernel flash-attn
 
 
 WORKDIR /workspace
