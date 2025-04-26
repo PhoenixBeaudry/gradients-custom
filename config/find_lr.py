@@ -8,8 +8,8 @@ import sys
 def main():
     cfg_path = sys.argv[1]
     # 1. Load the YAML config into a Python dict
-    with open(cfg_path, "r") as f:
-        cfg = yaml.safe_load(f)
+    yaml = yaml.YAML()
+    cfg = yaml.load(open(cfg_path))
 
     # 2. Load the data using Axolotl utilities (TrainerCliArgs can be default)
     cli_args = TrainerCliArgs()  # debug=False, etc.

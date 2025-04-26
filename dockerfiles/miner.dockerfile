@@ -9,6 +9,7 @@ RUN mkdir -p /workspace/axolotl/configs \
     /workspace/input_data
 
 RUN python3 -m pip install torch-lr-finder ruamel.yaml axolotl
+RUN pip3 install "axolotl[flash-attn,deepspeed] @ git+https://github.com/axolotl-ai-cloud/axolotl"
 
 ENV CONFIG_DIR="/workspace/axolotl/configs"
 ENV OUTPUT_DIR="/workspace/axolotl/outputs"
