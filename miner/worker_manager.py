@@ -61,7 +61,7 @@ def start_workers():
     if cst.REDIS_PASSWORD:
         redis_url = f"redis://:{cst.REDIS_PASSWORD}@{cst.REDIS_HOST}:{cst.REDIS_PORT}/0"
     else:
-        redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+        redis_url = f"redis://{cst.REDIS_HOST}:{cst.REDIS_PORT}/0"
         
     logger.info(f"Starting {len(GPU_PAIRS)} RQ workers for queue '{QUEUE_NAME}' on Redis at {cst.REDIS_HOST}:{cst.REDIS_PORT}...") # Don't log password
 
