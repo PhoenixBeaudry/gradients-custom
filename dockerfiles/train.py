@@ -16,6 +16,7 @@ from transformers import (
 )
 import torch
 
+accelerator = Accelerator()
 # Optional: require peft for LoRA adapters
 try:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -202,7 +203,6 @@ def main():
             processing_class=tokenizer,
         )
     logger.info("Starting training...")
-    accelerator = Accelerator()
     accelerate_trainer = accelerator.prepare(trainer)
     accelerate_trainer.train()
 
