@@ -71,7 +71,7 @@ eval_steps: 10
 warmup_steps: 20
 eval_table_size:
 eval_max_new_tokens: 128
-max_steps: 2000
+max_steps: 2500
 
 debug:
 
