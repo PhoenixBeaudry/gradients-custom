@@ -27,7 +27,7 @@ except ImportError:
 
 # Optional: require trl for DPO
 try:
-    from trl import DPOTrainer
+    from trl import DPOTrainer, DPOConfig
 except ImportError:
     DPOTrainer = None
 
@@ -132,7 +132,14 @@ def main():
     else:
         train_ds, eval_ds = load_sft_datasets(cfg, tokenizer)
 
-    training_args = TrainingArguments(
+    
+
+    callbacks = []
+    if cfg.get("early_stopping",False):
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
+
+    if rl_mode:
+        training_args = DPOConfig(
         output_dir=cfg.get("output_dir","/workspace/outputs"),
         per_device_train_batch_size=cfg.get("micro_batch_size",4),
         auto_find_batch_size=True,
@@ -163,12 +170,6 @@ def main():
         hub_strategy="every_save",
         use_liger_kernel=True,
     )
-
-    callbacks = []
-    if cfg.get("early_stopping",False):
-        callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
-
-    if rl_mode:
         logger.info("Loading DPO Trainer")
         if DPOTrainer is None:
             raise ImportError("trl required for DPO training")
@@ -187,6 +188,37 @@ def main():
             callbacks=callbacks,
         )
     else:
+        training_args = TrainingArguments(
+        output_dir=cfg.get("output_dir","/workspace/outputs"),
+        per_device_train_batch_size=cfg.get("micro_batch_size",4),
+        auto_find_batch_size=True,
+        bf16=True,
+        gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
+        dataloader_num_workers=8,
+        num_train_epochs=cfg.get("num_epochs",1),
+        learning_rate=float(cfg.get("learning_rate",5e-5)),
+        optim=cfg.get("optimizer","adamw_torch_fused"),
+         # warm up the first 500 steps by default (≈1% of most jobs)
+        warmup_steps=cfg.get("warmup_steps", 25),
+        # use cosine decay after warmup
+        lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE_WITH_RESTARTS),
+        max_steps=cfg.get("max_steps",-1),
+        logging_steps=cfg.get("logging_steps",100),
+        eval_strategy="steps" if eval_ds else "no",
+        save_strategy="best", eval_steps=cfg.get("eval_steps"),
+        save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
+        load_best_model_at_end=False,
+        metric_for_best_model=cfg.get("metric_for_best_model","loss"),
+        greater_is_better=bool(cfg.get("greater_is_better",False)),
+        weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
+        logging_dir=cfg.get("logging_dir","./logs"),
+        push_to_hub=True,
+        run_name=cfg.get("wandb_run"),
+        hub_model_id=cfg.get("hub_model_id"),
+        hub_token=cfg.get("hub_token"),
+        hub_strategy="every_save",
+        use_liger_kernel=True,
+        )
         logger.info("Loading SFT Trainer")
         data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
         trainer = Trainer(
