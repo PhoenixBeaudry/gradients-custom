@@ -184,7 +184,6 @@ def main():
             train_dataset=train_ds,
             eval_dataset=eval_ds,
             processing_class=tokenizer,
-            beta=cfg.get("beta",0.1),
             max_length=cfg.get("sequence_len",2048),
             max_prompt_length=cfg.get("sequence_len",2048),
             callbacks=callbacks,
