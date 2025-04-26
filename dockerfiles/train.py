@@ -4,6 +4,7 @@ import yaml
 import argparse
 import logging
 import wandb
+from accelerate import Accelerator
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -201,7 +202,9 @@ def main():
             processing_class=tokenizer,
         )
     logger.info("Starting training...")
-    trainer.train()
+    accelerator = Accelerator()
+    accelerate_trainer = accelerator.prepare(trainer)
+    accelerate_trainer.train()
 
 
 if __name__ == "__main__":
