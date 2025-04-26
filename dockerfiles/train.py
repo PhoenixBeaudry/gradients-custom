@@ -80,23 +80,7 @@ def load_dpo_datasets(cfg, tokenizer):
         "Hard Negative": "rejected",
     })
 
-    # now map & tokenize exactly like your dpomap, and drop those original cols:
-    def dpomap(ex):
-        q = tokenizer(ex["prompt"],    truncation=True, max_length=cfg["sequence_len"])
-        c = tokenizer(ex["chosen"],    truncation=True, max_length=cfg["sequence_len"])
-        r = tokenizer(ex["rejected"],  truncation=True, max_length=cfg["sequence_len"])
-        return {
-            "input_ids":              q["input_ids"],
-            "attention_mask":         q["attention_mask"],
-            "chosen_input_ids":       c["input_ids"],
-            "chosen_attention_mask":  c["attention_mask"],
-            "rejected_input_ids":     r["input_ids"],
-            "rejected_attention_mask":r["attention_mask"],
-        }
-
-    train_ds = raw.map(dpomap,
-                       batched=False,
-                       remove_columns=["prompt", "chosen", "rejected"])
+    train_ds = raw
     return train_ds, None
 
 
