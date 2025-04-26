@@ -2,6 +2,8 @@
 import os
 import yaml
 import argparse
+import logging
+import wandb
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -38,46 +40,36 @@ def parse_args():
 
 def load_sft_datasets(cfg, tokenizer):
     ds_cfg = cfg["datasets"][0]
-    # load raw
     ds_type = ds_cfg.get("ds_type", ds_cfg.get("type", "hf")).lower()
     if ds_type in ("json", "csv", "text"):
         raw = load_dataset(ds_type, data_files={"train": ds_cfg["path"]}, split=ds_cfg.get("split", "train"))
     else:
         raw = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
-    # split
     val_size = cfg.get("val_set_size", 0)
     if val_size > 0:
         splits = raw.shuffle(seed=cfg.get("seed", 42)).train_test_split(test_size=val_size)
         train_ds, eval_ds = splits["train"], splits["test"]
     else:
         train_ds, eval_ds = raw, None
-    # infer text field
     text_field = ds_cfg.get("text_field")
     if text_field is None:
         cols = [k for k,v in train_ds.features.items() if getattr(v, 'dtype', None)=='string']
         text_field = cols[0] if cols else None
-        if text_field is None:
+        if not text_field:
             raise ValueError("No string column found for SFT tokenization")
-    # tokenize
     def tok(batch): return tokenizer(batch[text_field], truncation=True, max_length=cfg.get("sequence_len",2048))
     train_ds = train_ds.map(tok, batched=True)
-    if eval_ds: eval_ds = eval_ds.map(tok, batched=True)
+    if eval_ds:
+        eval_ds = eval_ds.map(tok, batched=True)
     return train_ds, eval_ds
 
 
 def load_dpo_datasets(cfg, tokenizer):
     ds_cfg = cfg["datasets"][0]
-    # DPO dataset is always in ChatML format: list of messages per example
-    # load raw dataset (assume JSON/Parquet or HF format)
     raw = load_dataset(ds_cfg.get("path"), split=ds_cfg.get("split", "train"))
-    # parse ChatML: messages is a list of {role,content}
-    # extract query, chosen, rejected from messages list
     def dpomap(ex):
         msgs = ex.get("messages") or ex.get("chat") or []
-        # user prompt is first assistant->user role sequence
-        # find first user content
         query = next((m["content"] for m in msgs if m.get("role") == "user"), None)
-        # all assistant replies in order
         replies = [m["content"] for m in msgs if m.get("role") == "assistant"]
         if len(replies) < 2:
             raise ValueError("Expected at least two assistant replies for DPO ChatML")
@@ -96,33 +88,35 @@ def load_dpo_datasets(cfg, tokenizer):
 
 def main():
     args = parse_args()
+    # Setup logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logger = logging.getLogger(__name__)
+
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
-    hf_token = cfg.get("hub_token") or os.environ.get("HUGGINGFACE_TOKEN")
+    logger.info("Loaded configuration from %s", args.config)
+
+    # Initialize W&B
+    wandb_project = cfg.get("wandb_project")
+    if wandb_project:
+        wandb.init(
+            project=wandb_project,
+            name=cfg.get("wandb_run_name"),
+            config=cfg,
+        )
+        logger.info("Initialized W&B project %s", wandb_project)
+    else:
+        logger.info("No W&B project configured, skipping wandb.init()")
 
     model_name = cfg["base_model"]
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
-            use_fast=True,
-            token=hf_token
-        )
-    except ValueError:
-        # fallback to slow SP tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
-            use_fast=False,
-            token=hf_token
-        )
-        
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        token=hf_token,
+        use_auth_token=cfg.get("hub_token"),
         load_in_8bit=bool(cfg.get("load_in_8bit", False)),
         torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
         device_map="auto" if torch.cuda.device_count()>1 else None,
     )
-    # LoRA
     if cfg.get("adapter")=="lora":
         if get_peft_model is None:
             raise ImportError("peft required for LoRA")
@@ -135,15 +129,13 @@ def main():
         )
         model = get_peft_model(model, peft_cfg)
 
-    # Datasets
     rl_mode = cfg.get("rl","").lower()=="dpo"
     if rl_mode:
         train_ds, eval_ds = load_dpo_datasets(cfg, tokenizer)
     else:
         train_ds, eval_ds = load_sft_datasets(cfg, tokenizer)
 
-    # Training args
-    args_tf = TrainingArguments(
+    training_args = TrainingArguments(
         output_dir=cfg.get("output_dir","/workspace/outputs"),
         per_device_train_batch_size=cfg.get("micro_batch_size",4),
         gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
@@ -160,32 +152,48 @@ def main():
         metric_for_best_model=cfg.get("metric_for_best_model","loss"),
         greater_is_better=bool(cfg.get("greater_is_better",False)),
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
+        report_to=["wandb"] if wandb_project else [],
+        logging_dir=cfg.get("logging_dir","./logs"),
+        run_name=cfg.get("wandb_run_name"),
     )
-    cbs = []
-    if cfg.get("early_stopping_patience", False):
-        cbs.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
 
-    # Trainer
+    callbacks = []
+    if cfg.get("early_stopping",False):
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
+
     if rl_mode:
         if DPOTrainer is None:
             raise ImportError("trl required for DPO training")
-        ref_model = AutoModelForCausalLM.from_pretrained(model_name, token=hf_token,
-                                                        device_map="auto" if torch.cuda.device_count()>1 else None)
+        ref_model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            use_auth_token=cfg.get("hub_token"),
+            device_map="auto" if torch.cuda.device_count()>1 else None,
+        )
         ref_model.eval()
         trainer = DPOTrainer(
-            model=model, ref_model=ref_model, args=args_tf,
-            train_dataset=train_ds, eval_dataset=eval_ds,
-            tokenizer=tokenizer, beta=cfg.get("beta",0.1),
+            model=model,
+            ref_model=ref_model,
+            args=training_args,
+            train_dataset=train_ds,
+            eval_dataset=eval_ds,
+            tokenizer=tokenizer,
+            beta=cfg.get("beta",0.1),
             max_length=cfg.get("sequence_len",2048),
             max_prompt_length=cfg.get("sequence_len",2048),
+            callbacks=callbacks,
         )
     else:
         data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
         trainer = Trainer(
-            model=model, args=args_tf,
-            train_dataset=train_ds, eval_dataset=eval_ds,
-            data_collator=data_collator, callbacks=cbs, tokenizer=tokenizer
+            model=model,
+            args=training_args,
+            train_dataset=train_ds,
+            eval_dataset=eval_ds,
+            data_collator=data_collator,
+            callbacks=callbacks,
+            tokenizer=tokenizer,
         )
+    logger.info("Starting training...")
     trainer.train()
 
 
