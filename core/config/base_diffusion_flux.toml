@@ -23,9 +23,9 @@ huggingface_repo_type = "model"
 huggingface_repo_visibility = "public"
 huggingface_token = ""                                                                                                                                                         
 loss_type = "l2"                                                                                                                                                               
-lr_scheduler: "cosine"
-lr_scheduler_num_cycles: 1
-lr_scheduler_args: [
+lr_scheduler = "cosine"
+lr_scheduler_num_cycles = 1
+lr_scheduler_args = [
   "warmup_steps=100",
   "power=1",
 ]                                                                                                                                                      
@@ -42,8 +42,8 @@ network_args = [ "train_double_block_indices=all", "train_single_block_indices=a
 network_dim = 128                                                                                                                                                              
 network_module = "networks.lora_flux"                                                                                                                                          
 noise_offset_type = "Original"                                                                                                                                                 
-optimizer_type: "adamw_torch_fused"
-optimizer_args: [
+optimizer_type = "adamw_torch_fused"
+optimizer_args = [
   "weight_decay=0.01",
   "warmup_init=true",
 ]                                                                                                                                                  
