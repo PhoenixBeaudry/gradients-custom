@@ -23,7 +23,7 @@ def main():
     # Dataset loading
     ds_cfg = cfg.get("dataset", {})
     if ds_cfg.get("type", "hf") == "hf":
-        dataset = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
+        dataset = load_dataset(ds_cfg["train_data_dir"], split=ds_cfg.get("split", "train"))
     else:
         path = ds_cfg["train_data_dir"]
         fmt = ds_cfg.get("format", "json")
