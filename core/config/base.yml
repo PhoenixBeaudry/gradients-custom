@@ -61,6 +61,8 @@ hub_strategy: checkpoint
 hub_token:
 
 early_stopping_patience: 3
+load_best_model_at_end: true
+metric_for_best_model: loss
 eval_strategy: steps
 save_steps: 20
 eval_steps: 10
