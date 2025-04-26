@@ -434,7 +434,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
 
         # Launch Unsloth container
         container = docker_client.containers.run(
-            image=cst.UNSLOTH_DOCKER_IMAGE,
+            image=cst.MINER_DOCKER_IMAGE,
             environment=docker_env,
             volumes=volume_bindings,
             runtime="nvidia",

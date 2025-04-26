@@ -1,12 +1,9 @@
-FROM --platform=linux/amd64 axolotlai/axolotl:main-20241128-py3.11-cu124-2.5.1
+FROM --platform=linux/amd64 pytorch/pytorch:2.7.0-cuda11.8-cudnn9-runtime
 
 # Install dependencies and Unsloth
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install mlflow protobuf huggingface_hub wandb
+    pip install mlflow protobuf huggingface_hub wandb transformers accelerate
 
-RUN pip install --upgrade "transformers>=4.34.0"
-RUN pip install "unsloth[cu124-torch250] @ git+https://github.com/unslothai/unsloth.git"
-RUN pip install --upgrade git+https://github.com/pytorch/ao.git@main
 
 WORKDIR /workspace
 RUN mkdir -p /workspace/configs /workspace/outputs /workspace/data /workspace/input_data
@@ -23,7 +20,7 @@ RUN mkdir -p /root/.aws && \
     echo "[default]\nregion=us-east-1" > /root/.aws/config
 
 # Copy the Unsloth launcher
-COPY dockerfiles/unsloth_train.py /workspace/unsloth_train.py
+COPY dockerfiles/train.py /workspace/train.py
 
 CMD echo 'Preparing data...' && \
     if [ -n "$HUGGINGFACE_TOKEN" ]; then \
@@ -43,4 +40,4 @@ CMD echo 'Preparing data...' && \
     cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
     fi && \
     echo 'Starting training command' && \
-    python3 /workspace/unsloth_train.py --config ${CONFIG_DIR}/${JOB_ID}.yml
+    accelerate launch --multi_gpu /workspace/train.py --config ${CONFIG_DIR}/${JOB_ID}.yml
