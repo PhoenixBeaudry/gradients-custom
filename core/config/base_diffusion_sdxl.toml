@@ -7,7 +7,7 @@ caption_extension = ".txt"
 clip_skip = 1
 dynamo_backend = "no"
 enable_bucket = true
-epoch = 10
+epoch = 0
 gradient_accumulation_steps = 1
 gradient_checkpointing = true
 huber_c = 0.1
@@ -19,14 +19,16 @@ huggingface_repo_visibility = "public"
 huggingface_token = ""
 learning_rate = 0.00001
 loss_type = "l2"
-lr_scheduler = "constant"
-lr_scheduler_args = []
-lr_scheduler_num_cycles = 1
-lr_scheduler_power = 1
+lr_scheduler: "cosine"
+lr_scheduler_num_cycles: 1
+lr_scheduler_args: [
+  "warmup_steps=100",
+  "power=1",
+]
 max_bucket_reso = 2048
-max_data_loader_n_workers = 0
+max_data_loader_n_workers = 8
 max_grad_norm = 1
-max_timestep = 1000
+max_timestep = 2000
 max_token_length = 75
 max_train_steps = 1000
 min_bucket_reso = 256
@@ -38,8 +40,11 @@ network_dim = 32
 network_module = "networks.lora"
 no_half_vae = true
 noise_offset_type = "Original"
-optimizer_args = []
-optimizer_type = "AdamW8Bit"
+optimizer_type: "adamw_torch_fused"
+optimizer_args: [
+  "weight_decay=0.01",
+  "warmup_init=true",
+]
 output_dir = "/app/outputs"
 output_name = "last"
 pretrained_model_name_or_path = "stabilityai/stable-diffusion-xl-base-1.0"

@@ -8,7 +8,7 @@ caption_extension = ".txt"
 clip_l = "/app/flux/clip_l.safetensors"                                                                                                                              
 discrete_flow_shift = 3.1582                                                                                                                                                   
 dynamo_backend = "no"                                                                                                                                                          
-epoch = 100                                                                                                                                                                    
+epoch = 0                                                                                                                                                                    
 full_bf16 = true                                                                                                                                                               
 gradient_accumulation_steps = 1                                                                                                                                                
 gradient_checkpointing = true                                                                                                                                                  
@@ -23,14 +23,16 @@ huggingface_repo_type = "model"
 huggingface_repo_visibility = "public"
 huggingface_token = ""                                                                                                                                                         
 loss_type = "l2"                                                                                                                                                               
-lr_scheduler = "constant"                                                                                                                                                      
-lr_scheduler_args = []                                                                                                                                                         
-lr_scheduler_num_cycles = 1                                                                                                                                                    
-lr_scheduler_power = 1                                                                                                                                                         
+lr_scheduler: "cosine"
+lr_scheduler_num_cycles: 1
+lr_scheduler_args: [
+  "warmup_steps=100",
+  "power=1",
+]                                                                                                                                                      
 max_bucket_reso = 2048                                                                                                                                                         
-max_data_loader_n_workers = 0                                                                                                                                                  
+max_data_loader_n_workers = 8                                                                                                                                                  
 max_timestep = 1000                                                                                                                                                            
-max_train_steps = 1000                                                                                                                                                       
+max_train_steps = 2000                                                                                                                                                       
 mem_eff_save = true                                                                                                                                                            
 min_bucket_reso = 256                                                                                                                                                          
 mixed_precision = "bf16"                                                                                                                                                       
@@ -40,8 +42,11 @@ network_args = [ "train_double_block_indices=all", "train_single_block_indices=a
 network_dim = 128                                                                                                                                                              
 network_module = "networks.lora_flux"                                                                                                                                          
 noise_offset_type = "Original"                                                                                                                                                 
-optimizer_args = [ "scale_parameter=False", "relative_step=False", "warmup_init=False", "weight_decay=0.01",]                                                                  
-optimizer_type = "Adafactor"                                                                                                                                                   
+optimizer_type: "adamw_torch_fused"
+optimizer_args: [
+  "weight_decay=0.01",
+  "warmup_init=true",
+]                                                                                                                                                  
 output_dir = "/app/outputs"                                                                                                                                          
 output_name = "last"                                                                                                                                                 
 pretrained_model_name_or_path = "/app/flux/unet.safetensors"                                                                                                                  
