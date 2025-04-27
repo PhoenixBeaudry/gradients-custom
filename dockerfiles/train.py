@@ -147,7 +147,7 @@ def main():
         lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE_WITH_RESTARTS),
         max_steps=cfg.get("max_steps",-1),
         logging_steps=cfg.get("logging_steps",100),
-        eval_strategy="steps" if eval_ds else "no",
+        eval_strategy="steps",
         save_strategy="best", eval_steps=cfg.get("eval_steps"),
         save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
         load_best_model_at_end=False,
