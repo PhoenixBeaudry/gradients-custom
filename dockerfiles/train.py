@@ -167,7 +167,7 @@ def main():
         greater_is_better=bool(cfg.get("greater_is_better",False)),
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
         logging_dir=cfg.get("logging_dir","./logs"),
-        load_best_model_at_end=True,
+
         push_to_hub=True,
         run_name=cfg.get("wandb_run"),
         hub_model_id=cfg.get("hub_model_id"),
