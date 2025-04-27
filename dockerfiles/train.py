@@ -130,16 +130,36 @@ def main():
             load_in_8bit=bool(cfg.get("load_in_8bit", False)),
             torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
         )
-        
+
     if cfg.get("adapter")=="lora":
         if get_peft_model is None:
             raise ImportError("peft required for LoRA")
         if cfg.get("load_in_8bit"):
             model = prepare_model_for_kbit_training(model)
+        +        # figure out which modules to inject LoRA into
+        if cfg.get("target_modules"):
+            target_modules = cfg["target_modules"]
+        else:
+            # scan for any Linear in an attention layer
+            target_modules = []
+            for name, module in model.named_modules():
+                if isinstance(module, torch.nn.Linear):
+                    lname = name.lower()
+                    if "attn" in lname or "attention" in lname:
+                        target_modules.append(name.split(".")[-1])
+            target_modules = list(set(target_modules))
+            if not target_modules:
+                raise ValueError(
+                    "Could not auto-detect any attention projection layers for LoRA. "
+                    "Please set `target_modules` in your config."
+                )
         peft_cfg = LoraConfig(
-            r=cfg.get("lora_r",16), lora_alpha=cfg.get("lora_alpha",16),
-            target_modules=cfg.get("target_modules",["q_proj","k_proj","v_proj","o_proj"]),
-            lora_dropout=cfg.get("lora_dropout",0.0), bias="none", task_type="CAUSAL_LM"
+            r=cfg.get("lora_r",16),
+            lora_alpha=cfg.get("lora_alpha",16),
+            target_modules=target_modules,
+            lora_dropout=cfg.get("lora_dropout",0.0),
+            bias="none",
+            task_type="CAUSAL_LM",
         )
         model = get_peft_model(model, peft_cfg)
 
