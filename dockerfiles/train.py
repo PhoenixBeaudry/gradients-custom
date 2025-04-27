@@ -139,7 +139,7 @@ def main():
     
 
     callbacks = []
-    if cfg.get("early_stopping",False):
+    if cfg.get("early_stopping",True):
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
 
     if rl_mode:
