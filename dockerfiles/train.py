@@ -139,7 +139,7 @@ def main():
             raise ImportError("peft required for LoRA")
         if cfg.get("load_in_8bit"):
             model = prepare_model_for_kbit_training(model)
-        +        # figure out which modules to inject LoRA into
+        # figure out which modules to inject LoRA into
         if cfg.get("target_modules"):
             target_modules = cfg["target_modules"]
         else:
