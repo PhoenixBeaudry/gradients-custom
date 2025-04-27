@@ -4,7 +4,7 @@ import yaml
 import argparse
 import logging
 import wandb
-from accelerate import Accelerator
+from accelerate import Accelerator, set_seed
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -95,7 +95,11 @@ def load_dpo_datasets(cfg, tokenizer):
 
 
 def main():
-    
+    set_seed(42)
+    # global perf flags
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+
     args = parse_args()
     # Setup logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -105,7 +109,7 @@ def main():
         cfg = yaml.safe_load(f)
     logger.info("Loaded configuration from %s", args.config)
 
-    accelerator = Accelerator(log_with="wandb")
+    accelerator = Accelerator(log_with="wandb", bf16=True)
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
@@ -130,7 +134,7 @@ def main():
             load_in_8bit=bool(cfg.get("load_in_8bit", False)),
             torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
         )
-
+    model = torch.compile(model)
     if cfg.get("adapter")=="lora":
         if get_peft_model is None:
             raise ImportError("peft required for LoRA")
