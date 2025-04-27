@@ -105,7 +105,7 @@ def main():
     accelerator = Accelerator(log_with="wandb")
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=cfg.get("hub_token"))
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
     if "Qwen" in model_name:
         tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
