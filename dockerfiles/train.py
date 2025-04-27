@@ -17,6 +17,8 @@ from transformers import (
 )
 import torch
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # Optional: require peft for LoRA adapters
 try:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
