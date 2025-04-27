@@ -143,7 +143,7 @@ def main():
 
     callbacks = []
     if cfg.get("early_stopping",True):
-        callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",1)))
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",8)))
 
     if rl_mode:
         training_args = DPOConfig(
@@ -166,7 +166,7 @@ def main():
         save_strategy="best", eval_steps=cfg.get("eval_steps"),
         save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
         load_best_model_at_end=True,
-        metric_for_best_model=cfg.get("metric_for_best_model","loss"),
+        metric_for_best_model=cfg.get("metric_for_best_model","eval_loss"),
         greater_is_better=bool(cfg.get("greater_is_better",False)),
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
         logging_dir=cfg.get("logging_dir","./logs"),
@@ -216,7 +216,7 @@ def main():
         eval_strategy="steps" if eval_ds else "no",
         save_strategy="best", eval_steps=cfg.get("eval_steps"),
         save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
-        metric_for_best_model=cfg.get("metric_for_best_model","loss"),
+        metric_for_best_model=cfg.get("metric_for_best_model","eval_loss"),
         greater_is_better=bool(cfg.get("greater_is_better",False)),
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
         logging_dir=cfg.get("logging_dir","./logs"),
