@@ -76,14 +76,13 @@ def load_dpo_datasets(cfg, tokenizer):
     else:
         raw = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
     #  ← ADD THIS: rename your CSV headers to what DPOTrainer expects:
-    try:
-        raw = raw.rename_columns({
-            "gen_questions": "prompt",
-            "Positive":      "chosen",
-            "Hard Negative": "rejected",
-        })
-    except:
-        pass
+    cols = raw.column_names
+
+    # if neither “chosen” nor “positive” exist, guess from ordering:
+    if "chosen" not in cols:
+        raw = raw.rename_column(cols[1], "chosen")
+    if "rejected" not in cols:
+        raw = raw.rename_column(cols[2], "rejected")
 
     val_size = cfg.get("val_set_size", 0)
     if val_size > 0:
