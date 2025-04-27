@@ -79,7 +79,7 @@ def load_dpo_datasets(cfg, tokenizer):
         "Positive":      "chosen",
         "Hard Negative": "rejected",
     })
-    
+
     val_size = cfg.get("val_set_size", 0)
     if val_size > 0:
         splits = raw.shuffle(seed=cfg.get("seed", 42)).train_test_split(test_size=val_size)
@@ -104,6 +104,11 @@ def main():
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=cfg.get("hub_token"))
+    if "Qwen2" in model_name.lower():
+        tokenizer.padding_side = "left"
+        if tokenizer.pad_token_id is None:
+            # Qwen2 often doesn’t have an explicit pad token, so alias it to eos
+            tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         attn_implementation="flash_attention_2",
