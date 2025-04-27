@@ -106,7 +106,7 @@ def main():
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=cfg.get("hub_token"))
-    if "qwen2" in model_name.lower():
+    if "Qwen" in model_name:
         tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
             # Qwen2 often doesn’t have an explicit pad token, so alias it to eos
@@ -167,6 +167,7 @@ def main():
         greater_is_better=bool(cfg.get("greater_is_better",False)),
         weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
         logging_dir=cfg.get("logging_dir","./logs"),
+        load_best_model_at_end=True,
         push_to_hub=True,
         run_name=cfg.get("wandb_run"),
         hub_model_id=cfg.get("hub_model_id"),
@@ -206,6 +207,7 @@ def main():
         warmup_steps=cfg.get("warmup_steps", 25),
         # use cosine decay after warmup
         lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE_WITH_RESTARTS),
+        load_best_model_at_end=True,
         max_steps=cfg.get("max_steps",-1),
         logging_steps=cfg.get("logging_steps",100),
         eval_strategy="steps" if eval_ds else "no",
