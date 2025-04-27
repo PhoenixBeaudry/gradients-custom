@@ -4,7 +4,7 @@ import yaml
 import argparse
 import logging
 import wandb
-from accelerate import Accelerator, set_seed
+from accelerate import Accelerator
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -94,7 +94,6 @@ def load_dpo_datasets(cfg, tokenizer):
 
 
 def main():
-    set_seed(42)
     # global perf flags
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
