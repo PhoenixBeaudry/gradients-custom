@@ -79,9 +79,13 @@ def load_dpo_datasets(cfg, tokenizer):
         "Positive":      "chosen",
         "Hard Negative": "rejected",
     })
-
-    train_ds = raw
-    return train_ds, None
+    val_size = cfg.get("val_set_size", 0)
+    if val_size > 0:
+        splits = raw.shuffle(seed=cfg.get("seed", 42)).train_test_split(test_size=val_size)
+        train_ds, eval_ds = splits["train"], splits["test"]
+    else:
+        train_ds, eval_ds = raw, None
+    return train_ds, eval_ds
 
 
 def main():
