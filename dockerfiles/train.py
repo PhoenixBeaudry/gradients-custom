@@ -132,7 +132,6 @@ def main():
             load_in_8bit=bool(cfg.get("load_in_8bit", False)),
             torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
         )
-    model = torch.compile(model)
     if cfg.get("adapter")=="lora":
         if get_peft_model is None:
             raise ImportError("peft required for LoRA")
