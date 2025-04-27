@@ -107,7 +107,7 @@ def main():
         cfg = yaml.safe_load(f)
     logger.info("Loaded configuration from %s", args.config)
 
-    accelerator = Accelerator(log_with="wandb", bf16=True)
+    accelerator = Accelerator(log_with="wandb", mixed_precision="bf16")
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
