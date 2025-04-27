@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import os
-import yaml
 import argparse
 import logging
-import wandb
+import yaml
+
+import torch
 from accelerate import Accelerator
+import wandb
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -15,267 +17,290 @@ from transformers import (
     EarlyStoppingCallback,
     SchedulerType,
 )
-import torch
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-# Optional: require peft for LoRA adapters
+# Optional imports for LoRA adapters and DPO
 try:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 except ImportError:
-    LoraConfig = None
-    get_peft_model = None
-    prepare_model_for_kbit_training = None
+    LoraConfig = get_peft_model = prepare_model_for_kbit_training = None
 
-# Optional: require trl for DPO
 try:
     from trl import DPOTrainer, DPOConfig
 except ImportError:
-    DPOTrainer = None
+    DPOTrainer = DPOConfig = None
+
+# Disable parallel tokenizer threads to avoid warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config", type=str, required=True, help="Path to YAML config"
-    )
+    parser = argparse.ArgumentParser(description="Train a causal LM with SFT or DPO")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     return parser.parse_args()
 
 
-def load_sft_datasets(cfg, tokenizer):
-    ds_cfg = cfg["datasets"][0]
-    ds_type = ds_cfg.get("ds_type", ds_cfg.get("type", "hf")).lower()
-    if ds_type in ("json", "csv", "text"):
-        raw = load_dataset(ds_type, data_files={"train": ds_cfg["path"]}, split=ds_cfg.get("split", "train"))
+def load_config(path: str) -> dict:
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def setup_logger() -> logging.Logger:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s"
+    )
+    return logging.getLogger(__name__)
+
+
+def prepare_tokenizer(model_name: str, hub_token: str = None) -> AutoTokenizer:
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name, use_fast=True, use_auth_token=hub_token
+    )
+    if "Qwen" in model_name:
+        tokenizer.padding_side = 'left'
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
+
+
+def load_model(model_name: str, cfg: dict) -> AutoModelForCausalLM:
+    common_kwargs = {
+        'use_auth_token': cfg.get('hub_token'),
+        'load_in_8bit': bool(cfg.get('load_in_8bit', False)),
+        'torch_dtype': torch.bfloat16 if cfg.get('bf16') and torch.cuda.is_bf16_supported() else None,
+    }
+    try:
+        return AutoModelForCausalLM.from_pretrained(
+            model_name,
+            attn_implementation='flash_attention_2',
+            **common_kwargs
+        )
+    except Exception:
+        return AutoModelForCausalLM.from_pretrained(model_name, **common_kwargs)
+
+
+def apply_lora_adapter(model: AutoModelForCausalLM, cfg: dict) -> AutoModelForCausalLM:
+    if get_peft_model is None:
+        raise ImportError("peft library is required for LoRA adapters.")
+
+    if cfg.get('load_in_8bit', False):
+        model = prepare_model_for_kbit_training(model)
+
+    # Determine target modules for LoRA
+    targets = cfg.get('target_modules') or []
+    if not targets:
+        for name, module in model.named_modules():
+            if isinstance(module, torch.nn.Linear) and any(x in name.lower() for x in ('attn', 'attention')):
+                targets.append(name.split('.')[-1])
+        targets = list(set(targets))
+        if not targets:
+            raise ValueError("Could not auto-detect attention modules for LoRA. Please set 'target_modules' in config.")
+
+    peft_config = LoraConfig(
+        r=cfg.get('lora_r', 16),
+        lora_alpha=cfg.get('lora_alpha', 16),
+        target_modules=targets,
+        lora_dropout=cfg.get('lora_dropout', 0.0),
+        bias='none',
+        task_type='CAUSAL_LM'
+    )
+    return get_peft_model(model, peft_config)
+
+
+def load_sft_datasets(cfg: dict, tokenizer: AutoTokenizer):
+    ds_cfg = cfg['datasets'][0]
+    ds_type = ds_cfg.get('ds_type', ds_cfg.get('type', 'hf')).lower()
+    if ds_type in ('json', 'csv', 'text'):
+        raw = load_dataset(ds_type, data_files={'train': ds_cfg['path']}, split=ds_cfg.get('split', 'train'))
     else:
-        raw = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
-    val_size = cfg.get("val_set_size", 0)
+        raw = load_dataset(ds_cfg['path'], split=ds_cfg.get('split', 'train'))
+
+    val_size = cfg.get('val_set_size', 0)
     if val_size > 0:
-        splits = raw.shuffle(seed=cfg.get("seed", 42)).train_test_split(test_size=val_size)
-        train_ds, eval_ds = splits["train"], splits["test"]
+        splits = raw.shuffle(seed=cfg.get('seed', 42)).train_test_split(test_size=val_size)
+        train_ds, eval_ds = splits['train'], splits['test']
     else:
         train_ds, eval_ds = raw, None
-    text_field = ds_cfg.get("text_field")
-    if text_field is None:
-        cols = [k for k,v in train_ds.features.items() if getattr(v, 'dtype', None)=='string']
-        text_field = cols[0] if cols else None
-        if not text_field:
-            raise ValueError("No string column found for SFT tokenization")
-    def tok(batch): return tokenizer(batch[text_field], truncation=True, max_length=cfg.get("sequence_len",2048))
-    train_ds = train_ds.map(tok, batched=True)
+
+    # Identify text column
+    text_col = ds_cfg.get('text_field')
+    if not text_col:
+        text_cols = [k for k, v in train_ds.features.items() if getattr(v, 'dtype', None) == 'string']
+        text_col = text_cols[0] if text_cols else None
+        if not text_col:
+            raise ValueError("No string column found for SFT tokenization.")
+
+    def tokenize_fn(batch):
+        return tokenizer(batch[text_col], truncation=True, max_length=cfg.get('sequence_len', 2048))
+
+    train_ds = train_ds.map(tokenize_fn, batched=True)
     if eval_ds:
-        eval_ds = eval_ds.map(tok, batched=True)
+        eval_ds = eval_ds.map(tokenize_fn, batched=True)
+
     return train_ds, eval_ds
 
 
-def load_dpo_datasets(cfg, tokenizer):
-    ds_cfg = cfg["datasets"][0]
-    ds_type = ds_cfg.get("ds_type", ds_cfg.get("type", "hf")).lower()
-    if ds_type in ("json", "csv", "text"):
-        raw = load_dataset(ds_type, data_files={"train": ds_cfg["path"]}, split=ds_cfg.get("split", "train"))
+def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
+    ds_cfg = cfg['datasets'][0]
+    ds_type = ds_cfg.get('ds_type', ds_cfg.get('type', 'hf')).lower()
+    if ds_type in ('json', 'csv', 'text'):
+        raw = load_dataset(ds_type, data_files={'train': ds_cfg['path']}, split=ds_cfg.get('split', 'train'))
     else:
-        raw = load_dataset(ds_cfg["path"], split=ds_cfg.get("split", "train"))
-    #  ← ADD THIS: rename your CSV headers to what DPOTrainer expects:
+        raw = load_dataset(ds_cfg['path'], split=ds_cfg.get('split', 'train'))
+
     cols = raw.column_names
+    if 'chosen' not in cols and len(cols) > 1:
+        raw = raw.rename_column(cols[1], 'chosen')
+    if 'rejected' not in cols and len(cols) > 2:
+        raw = raw.rename_column(cols[2], 'rejected')
 
-    # if neither “chosen” nor “positive” exist, guess from ordering:
-    if "chosen" not in cols:
-        raw = raw.rename_column(cols[1], "chosen")
-    if "rejected" not in cols:
-        raw = raw.rename_column(cols[2], "rejected")
-
-    val_size = cfg.get("val_set_size", 0)
+    val_size = cfg.get('val_set_size', 0)
     if val_size > 0:
-        splits = raw.shuffle(seed=cfg.get("seed", 42)).train_test_split(test_size=val_size)
-        train_ds, eval_ds = splits["train"], splits["test"]
+        splits = raw.shuffle(seed=cfg.get('seed', 42)).train_test_split(test_size=val_size)
+        train_ds, eval_ds = splits['train'], splits['test']
     else:
         train_ds, eval_ds = raw, None
+
     return train_ds, eval_ds
+
+
+def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
+    if cfg.get('rl', '').lower() == 'dpo':
+        if DPOTrainer is None:
+            raise ImportError("trl library is required for DPO training.")
+
+        dpo_args = DPOConfig(
+            output_dir=cfg.get('output_dir', './outputs'),
+            per_device_train_batch_size=cfg.get('micro_batch_size', 4),
+            auto_find_batch_size=True,
+            bf16=True,
+            gradient_accumulation_steps=cfg.get('gradient_accumulation_steps', 1),
+            dataloader_num_workers=8,
+            num_train_epochs=cfg.get('num_epochs', 1),
+            learning_rate=cfg.get('learning_rate', 5e-5),
+            optim=cfg.get('optimizer', 'adamw_torch_fused'),
+            warmup_steps=cfg.get('warmup_steps', 25),
+            lr_scheduler_type=cfg.get('lr_scheduler_type', SchedulerType.COSINE_WITH_RESTARTS),
+            max_steps=cfg.get('max_steps', -1),
+            logging_steps=cfg.get('logging_steps', 100),
+            eval_strategy='steps',
+            save_strategy='best',
+            eval_steps=cfg.get('eval_steps'),
+            save_steps=cfg.get('save_steps'),
+            save_total_limit=cfg.get('save_total_limit'),
+            load_best_model_at_end=True,
+            metric_for_best_model=cfg.get('metric_for_best_model', 'eval_loss'),
+            greater_is_better=cfg.get('greater_is_better', False),
+            weight_decay=cfg.get('weight_decay', 0.0),
+            fp16=cfg.get('fp16', False),
+            logging_dir=cfg.get('logging_dir', './logs'),
+            push_to_hub=True,
+            run_name=cfg.get('wandb_run'),
+            hub_model_id=cfg.get('hub_model_id'),
+            hub_token=cfg.get('hub_token'),
+            hub_strategy='every_save',
+            use_liger_kernel=True,
+        )
+        logger = setup_logger()
+        logger.info("Initializing DPO Trainer")
+
+        ref_model = AutoModelForCausalLM.from_pretrained(
+            cfg['base_model'], use_auth_token=cfg.get('hub_token')
+        )
+        ref_model.eval()
+
+        return DPOTrainer(
+            model=model,
+            ref_model=ref_model,
+            args=dpo_args,
+            train_dataset=train_ds,
+            eval_dataset=eval_ds,
+            processing_class=tokenizer,
+            callbacks=callbacks,
+        )
+
+    # Default: SFT Trainer
+    tf_args = TrainingArguments(
+        output_dir=cfg.get('output_dir', './outputs'),
+        per_device_train_batch_size=cfg.get('micro_batch_size', 4),
+        auto_find_batch_size=True,
+        bf16=True,
+        gradient_accumulation_steps=cfg.get('gradient_accumulation_steps', 1),
+        dataloader_num_workers=8,
+        num_train_epochs=cfg.get('num_epochs', 1),
+        learning_rate=cfg.get('learning_rate', 5e-5),
+        optim=cfg.get('optimizer', 'adamw_torch_fused'),
+        warmup_steps=cfg.get('warmup_steps', 25),
+        lr_scheduler_type=cfg.get('lr_scheduler_type', SchedulerType.COSINE_WITH_RESTARTS),
+        load_best_model_at_end=True,
+        max_steps=cfg.get('max_steps', -1),
+        logging_steps=cfg.get('logging_steps', 100),
+        eval_strategy='steps' if eval_ds else 'no',
+        save_strategy='best',
+        eval_steps=cfg.get('eval_steps'),
+        save_steps=cfg.get('save_steps'),
+        save_total_limit=cfg.get('save_total_limit'),
+        metric_for_best_model=cfg.get('metric_for_best_model', 'eval_loss'),
+        greater_is_better=cfg.get('greater_is_better', False),
+        weight_decay=cfg.get('weight_decay', 0.0),
+        fp16=cfg.get('fp16', False),
+        logging_dir=cfg.get('logging_dir', './logs'),
+        push_to_hub=True,
+        run_name=cfg.get('wandb_run'),
+        hub_model_id=cfg.get('hub_model_id'),
+        hub_token=cfg.get('hub_token'),
+        hub_strategy='every_save',
+        use_liger_kernel=True,
+    )
+    logger = setup_logger()
+    logger.info("Initializing SFT Trainer")
+
+    return Trainer(
+        model=model,
+        args=tf_args,
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        callbacks=callbacks,
+        processing_class=tokenizer,
+    )
 
 
 def main():
-    # global perf flags
+    args = parse_args()
+    cfg = load_config(args.config)
+    logger = setup_logger()
+
+    # Performance flags
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
 
-    args = parse_args()
-    # Setup logging
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logger = logging.getLogger(__name__)
-
-    with open(args.config) as f:
-        cfg = yaml.safe_load(f)
-    logger.info("Loaded configuration from %s", args.config)
-
+    logger.info("Loaded config from %s", args.config)
     accelerator = Accelerator(log_with="wandb", mixed_precision="bf16")
-    accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
-    model_name = cfg["base_model"]
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, token=cfg.get("hub_token"))
-    if "Qwen" in model_name:
-        tokenizer.padding_side = "left"
-        if tokenizer.pad_token_id is None:
-            # Qwen2 often doesn’t have an explicit pad token, so alias it to eos
-            tokenizer.pad_token = tokenizer.eos_token
+    accelerator.init_trackers(cfg.get('wandb_project'), config=cfg)
 
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            attn_implementation="flash_attention_2",
-            use_auth_token=cfg.get("hub_token"),
-            load_in_8bit=bool(cfg.get("load_in_8bit", False)),
-            torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
-        )
-    except:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            use_auth_token=cfg.get("hub_token"),
-            load_in_8bit=bool(cfg.get("load_in_8bit", False)),
-            torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
-        )
-    if cfg.get("adapter") == "lora":
-        if get_peft_model is None:
-            raise ImportError("peft required for LoRA")
+    tokenizer = prepare_tokenizer(cfg['base_model'], cfg.get('hub_token'))
+    model = load_model(cfg['base_model'], cfg)
 
-        if cfg.get("load_in_8bit"):
-            model = prepare_model_for_kbit_training(model)
+    if cfg.get('adapter') == 'lora':
+        model = apply_lora_adapter(model, cfg)
 
-        # 1a) allow an explicit override
-        if cfg.get("target_modules"):
-            target_modules = cfg["target_modules"]
-        else:
-            # 1b) otherwise scan every nn.Linear under "attn" (or "attention")
-            target_modules = []
-            for name, module in model.named_modules():
-                if isinstance(module, torch.nn.Linear):
-                    lname = name.lower()
-                    if "attn" in lname or "attention" in lname:
-                        target_modules.append(name.split(".")[-1])
-            target_modules = list(set(target_modules))
-            if not target_modules:
-                raise ValueError(
-                    "Auto-LoRA failed: couldn’t find any nn.Linear in an attention module. "
-                    "Please set `target_modules:` in your config."
-                )
-
-        peft_cfg = LoraConfig(
-            r=cfg.get("lora_r", 16),
-            lora_alpha=cfg.get("lora_alpha", 16),
-            target_modules=target_modules,
-            lora_dropout=cfg.get("lora_dropout", 0.0),
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
-        model = get_peft_model(model, peft_cfg)
-
-    rl_mode = cfg.get("rl","").lower()=="dpo"
-    if rl_mode:
-        train_ds, eval_ds = load_dpo_datasets(cfg, tokenizer)
-    else:
-        train_ds, eval_ds = load_sft_datasets(cfg, tokenizer)
-
-    
+    rl_mode = cfg.get('rl', '').lower() == 'dpo'
+    load_fn = load_dpo_datasets if rl_mode else load_sft_datasets
+    train_ds, eval_ds = load_fn(cfg, tokenizer)
 
     callbacks = []
-    if cfg.get("early_stopping",True):
-        callbacks.append(EarlyStoppingCallback(early_stopping_patience=cfg.get("early_stopping_patience",8)))
+    if cfg.get('early_stopping', True):
+        callbacks.append(
+            EarlyStoppingCallback(early_stopping_patience=cfg.get('early_stopping_patience', 8))
+        )
 
-    if rl_mode:
-        training_args = DPOConfig(
-        output_dir=cfg.get("output_dir","/workspace/outputs"),
-        per_device_train_batch_size=cfg.get("micro_batch_size",4),
-        auto_find_batch_size=True,
-        bf16=True,
-        gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
-        dataloader_num_workers=8,
-        num_train_epochs=cfg.get("num_epochs",1),
-        learning_rate=float(cfg.get("learning_rate",5e-5)),
-        optim=cfg.get("optimizer","adamw_torch_fused"),
-         # warm up the first 500 steps by default (≈1% of most jobs)
-        warmup_steps=cfg.get("warmup_steps", 25),
-        # use cosine decay after warmup
-        lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE_WITH_RESTARTS),
-        max_steps=cfg.get("max_steps",-1),
-        logging_steps=cfg.get("logging_steps",100),
-        eval_strategy="steps",
-        save_strategy="best", eval_steps=cfg.get("eval_steps"),
-        save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
-        load_best_model_at_end=True,
-        metric_for_best_model=cfg.get("metric_for_best_model","eval_loss"),
-        greater_is_better=bool(cfg.get("greater_is_better",False)),
-        weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
-        logging_dir=cfg.get("logging_dir","./logs"),
+    trainer = build_trainer(cfg, model, tokenizer, train_ds, eval_ds, callbacks)
 
-        push_to_hub=True,
-        run_name=cfg.get("wandb_run"),
-        hub_model_id=cfg.get("hub_model_id"),
-        hub_token=cfg.get("hub_token"),
-        hub_strategy="every_save",
-        use_liger_kernel=True,
-    )
-        logger.info("Loading DPO Trainer")
-        if DPOTrainer is None:
-            raise ImportError("trl required for DPO training")
-        ref_model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            use_auth_token=cfg.get("hub_token"),
-        )
-        ref_model.eval()
-        trainer = DPOTrainer(
-            model=model,
-            ref_model=ref_model,
-            args=training_args,
-            train_dataset=train_ds,
-            eval_dataset=eval_ds,
-            processing_class=tokenizer,
-            callbacks=callbacks,
-        )
-    else:
-        training_args = TrainingArguments(
-        output_dir=cfg.get("output_dir","/workspace/outputs"),
-        per_device_train_batch_size=cfg.get("micro_batch_size",4),
-        auto_find_batch_size=True,
-        bf16=True,
-        gradient_accumulation_steps=cfg.get("gradient_accumulation_steps",1),
-        dataloader_num_workers=8,
-        num_train_epochs=cfg.get("num_epochs",1),
-        learning_rate=float(cfg.get("learning_rate",5e-5)),
-        optim=cfg.get("optimizer","adamw_torch_fused"),
-         # warm up the first 500 steps by default (≈1% of most jobs)
-        warmup_steps=cfg.get("warmup_steps", 25),
-        # use cosine decay after warmup
-        lr_scheduler_type=cfg.get("lr_scheduler_type", SchedulerType.COSINE_WITH_RESTARTS),
-        load_best_model_at_end=True,
-        max_steps=cfg.get("max_steps",-1),
-        logging_steps=cfg.get("logging_steps",100),
-        eval_strategy="steps" if eval_ds else "no",
-        save_strategy="best", eval_steps=cfg.get("eval_steps"),
-        save_steps=cfg.get("save_steps"), save_total_limit=cfg.get("save_total_limit"),
-        metric_for_best_model=cfg.get("metric_for_best_model","eval_loss"),
-        greater_is_better=bool(cfg.get("greater_is_better",False)),
-        weight_decay=cfg.get("weight_decay",0.0), fp16=bool(cfg.get("fp16",False)),
-        logging_dir=cfg.get("logging_dir","./logs"),
-        push_to_hub=True,
-        run_name=cfg.get("wandb_run"),
-        hub_model_id=cfg.get("hub_model_id"),
-        hub_token=cfg.get("hub_token"),
-        hub_strategy="every_save",
-        use_liger_kernel=True,
-        )
-        logger.info("Loading SFT Trainer")
-        data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_ds,
-            eval_dataset=eval_ds,
-            data_collator=data_collator,
-            callbacks=callbacks,
-            processing_class=tokenizer,
-        )
     logger.info("Starting training...")
-    accelerate_trainer = accelerator.prepare(trainer)
-    accelerate_trainer.train()
+    trainer = accelerator.prepare(trainer)
+    trainer.train()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
