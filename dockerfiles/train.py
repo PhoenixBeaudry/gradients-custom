@@ -114,13 +114,23 @@ def main():
         if tokenizer.pad_token_id is None:
             # Qwen2 often doesn’t have an explicit pad token, so alias it to eos
             tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        attn_implementation="flash_attention_2",
-        use_auth_token=cfg.get("hub_token"),
-        load_in_8bit=bool(cfg.get("load_in_8bit", False)),
-        torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
-    )
+
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            attn_implementation="flash_attention_2",
+            use_auth_token=cfg.get("hub_token"),
+            load_in_8bit=bool(cfg.get("load_in_8bit", False)),
+            torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
+        )
+    except:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            use_auth_token=cfg.get("hub_token"),
+            load_in_8bit=bool(cfg.get("load_in_8bit", False)),
+            torch_dtype=torch.bfloat16 if cfg.get("bf16") and torch.cuda.is_bf16_supported() else None,
+        )
+        
     if cfg.get("adapter")=="lora":
         if get_peft_model is None:
             raise ImportError("peft required for LoRA")
