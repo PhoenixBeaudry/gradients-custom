@@ -79,6 +79,7 @@ def load_dpo_datasets(cfg, tokenizer):
         "Positive":      "chosen",
         "Hard Negative": "rejected",
     })
+    
     val_size = cfg.get("val_set_size", 0)
     if val_size > 0:
         splits = raw.shuffle(seed=cfg.get("seed", 42)).train_test_split(test_size=val_size)
