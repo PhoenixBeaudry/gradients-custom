@@ -104,7 +104,7 @@ def main():
     accelerator.init_trackers(cfg.get("wandb_project"), config=cfg)
     model_name = cfg["base_model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=cfg.get("hub_token"))
-    if "Qwen2" in model_name.lower():
+    if "qwen2" in model_name.lower():
         tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
             # Qwen2 often doesn’t have an explicit pad token, so alias it to eos
