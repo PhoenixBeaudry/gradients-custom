@@ -152,6 +152,8 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
         raw = load_dataset(ds_cfg['path'], split=ds_cfg.get('split', 'train'))
 
     cols = raw.column_names
+    if 'prompt' not in cols and len(cols) > 0:
+        raw = raw.rename_column(cols[0], 'prompt')
     if 'chosen' not in cols and len(cols) > 1:
         raw = raw.rename_column(cols[1], 'chosen')
     if 'rejected' not in cols and len(cols) > 2:
