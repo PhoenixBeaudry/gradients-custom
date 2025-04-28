@@ -270,7 +270,7 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 2)),
         dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
         num_train_epochs=int(cfg.get('num_epochs', 1)),
-        learning_rate=float(cfg.get('learning_rate', 1e-5))/3,
+        learning_rate=float(cfg.get('learning_rate', 5e-5))/3,
         optim=cfg.get('optimizer', 'lion_8bit'),
         warmup_steps=int(cfg.get('warmup_steps', 25)),
         lr_scheduler_type=SchedulerType.COSINE_WITH_RESTARTS,
