@@ -225,6 +225,15 @@ async def task_offer_image(
     try:
         logger.info("An image offer has come through")
 
+
+        ####### TEMPORARY #######
+        # WE ARE CURRENTLY NOT ACCEPTING IMAGE TASKS
+        logger.info(f"Rejecting offer for image task.)")
+        return MinerTaskResponse(message="No image tasks for now :(", accepted=False)
+
+
+        #########################
+
         # Check RQ queue length and running jobs
         queued_count = rq_queue.count
         started_registry = StartedJobRegistry(queue=rq_queue)
