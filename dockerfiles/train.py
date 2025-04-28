@@ -239,6 +239,7 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         smooth_f=0.05,
         diverge_th=5.0,
     ) as trainer_with_finder:
+        trainer_with_finder.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
         # epoch_length caps the number of iterations per epoch
         trainer_with_finder.run(loader, max_epochs=1, epoch_length=num_iter)
 
