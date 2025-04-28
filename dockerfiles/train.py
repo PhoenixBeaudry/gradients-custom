@@ -85,14 +85,29 @@ def setup_logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def prepare_tokenizer(model_name: str, hub_token: str = None) -> AutoTokenizer:
+def prepare_tokenizer(model_name: str, hub_token: str = None, max_length: int = 2048):
     tokenizer = AutoTokenizer.from_pretrained(
-        model_name, use_fast=True, use_auth_token=hub_token
+        model_name,
+        use_fast=True,
+        use_auth_token=hub_token,
     )
+    # 1) force left‐padding
     tokenizer.padding_side = "left"
+
+    # 2) default truncation to max_length
+    if hasattr(tokenizer, "enable_truncation"):
+        tokenizer.enable_truncation(max_length=max_length)
+
+    # 3) default padding on every call
+    if hasattr(tokenizer, "enable_padding"):
+        tokenizer.enable_padding()
+
+    # fallback EOS→PAD
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
+
     return tokenizer
+
 
 
 def load_model(model_name: str, cfg: dict) -> AutoModelForCausalLM:
@@ -171,16 +186,25 @@ def load_sft_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
     return train_ds, eval_ds
 
+
 def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
     ds_cfg = cfg['datasets'][0]
     ds_type = ds_cfg.get('ds_type', ds_cfg.get('type', 'hf')).lower()
-    # Load raw dataset
-    if ds_type in ('json', 'csv', 'text'):
-        raw = load_dataset(ds_type, data_files={'train': ds_cfg['path']}, split=ds_cfg.get('split', 'train'))
-    else:
-        raw = load_dataset(ds_cfg['path'], split=ds_cfg.get('split', 'train'))
 
-    # Rename columns to prompt / chosen / rejected
+    # 1) Load raw data
+    if ds_type in ('json', 'csv', 'text'):
+        raw = load_dataset(
+            ds_type,
+            data_files={'train': ds_cfg['path']},
+            split=ds_cfg.get('split', 'train')
+        )
+    else:
+        raw = load_dataset(
+            ds_cfg['path'],
+            split=ds_cfg.get('split', 'train')
+        )
+
+    # 2) Ensure the three text‐columns exist
     cols = raw.column_names
     if 'prompt' not in cols and len(cols) > 0:
         raw = raw.rename_column(cols[0], 'prompt')
@@ -189,60 +213,16 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
     if 'rejected' not in cols and len(cols) > 2:
         raw = raw.rename_column(cols[2], 'rejected')
 
-    # Split out a validation set if requested
+    # 3) Optional validation split
     val_size = cfg.get('val_set_size', 0)
     if val_size > 0:
-        splits = raw.shuffle(seed=cfg.get('seed', 42)).train_test_split(test_size=val_size)
+        splits = raw.shuffle(seed=cfg.get('seed', 42)) \
+                    .train_test_split(test_size=val_size)
         train_ds, eval_ds = splits['train'], splits['test']
     else:
         train_ds, eval_ds = raw, None
 
-    # Tokenization function with left-padding enforced by tokenizer.padding_side
-    def tokenize_fn(batch):
-        # Prompt
-        tok_p = tokenizer(
-            batch['prompt'],
-            truncation=True,
-            padding=True,
-            max_length=int(cfg.get('sequence_len', 2048)),
-        )
-        # Chosen
-        tok_c = tokenizer(
-            batch['chosen'],
-            truncation=True,
-            padding=True,
-            max_length=int(cfg.get('sequence_len', 2048)),
-        )
-        # Rejected
-        tok_r = tokenizer(
-            batch['rejected'],
-            truncation=True,
-            padding=True,
-            max_length=int(cfg.get('sequence_len', 2048)),
-        )
-
-        return {
-            'input_ids':                tok_p['input_ids'],
-            'attention_mask':           tok_p['attention_mask'],
-            'chosen_input_ids':         tok_c['input_ids'],
-            'chosen_attention_mask':    tok_c['attention_mask'],
-            'rejected_input_ids':       tok_r['input_ids'],
-            'rejected_attention_mask':  tok_r['attention_mask'],
-        }
-
-    # Apply tokenization and drop original text columns
-    train_ds = train_ds.map(
-        tokenize_fn,
-        batched=True,
-        remove_columns=train_ds.column_names,
-    )
-    if eval_ds:
-        eval_ds = eval_ds.map(
-            tokenize_fn,
-            batched=True,
-            remove_columns=eval_ds.column_names,
-        )
-
+    # 4) Return raw text‐column datasets—DPOTrainer will tokenize for you
     return train_ds, eval_ds
 
 
@@ -366,7 +346,9 @@ def main():
     accelerator = Accelerator(log_with="wandb", mixed_precision="bf16")
     accelerator.init_trackers(cfg.get('wandb_project'), config=cfg)
 
-    tokenizer = prepare_tokenizer(cfg['base_model'], cfg.get('hub_token'))
+    # after loading cfg...
+    seq_len = int(cfg.get("sequence_len", 2048))
+    tokenizer = prepare_tokenizer(cfg["base_model"], cfg.get("hub_token"), max_length=seq_len)
     model = load_model(cfg['base_model'], cfg)
 
     if cfg.get('adapter') == 'lora':
