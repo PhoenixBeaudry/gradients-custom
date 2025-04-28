@@ -200,6 +200,35 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
     return train_ds, eval_ds
 
+def benchmark_throughput(
+    accelerator, trainer, num_batches: int = 20
+) -> float:
+    """
+    Run `num_batches` of the train DataLoader (no grad) to estimate
+    steps/sec. Returns steps_per_sec.
+    """
+    loader = trainer.get_train_dataloader()
+    model, optimizer, _, _ = accelerator.prepare(
+        trainer.model, trainer.optimizer, trainer.lr_scheduler, loader
+    )
+    # warm up one batch
+    batch = next(iter(loader))
+    with torch.no_grad():
+        _ = model(**batch)
+
+    # synchronize and time
+    torch.cuda.synchronize()
+    start = time.perf_counter()
+    it = iter(loader)
+    for _ in range(num_batches):
+        batch = next(it)
+        with torch.no_grad():
+            _ = model(**batch)
+    torch.cuda.synchronize()
+    end = time.perf_counter()
+
+    return num_batches / (end - start)
+
 
 def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
     if cfg.get('rl', '').lower() == 'dpo':
@@ -339,16 +368,42 @@ def main():
             EarlyStoppingCallback(early_stopping_patience=cfg.get('early_stopping_patience', 8))
         )
     # add time‐limit
-    max_hours = cfg.get('hours_to_complete')  # e.g. 4.0
+    max_hours = int(cfg.get('hours_to_complete'))  # e.g. 4.0
     if max_hours is not None:
         callbacks.append(TimeLimitCallback(max_hours))
 
-
+    logger.info("Starting Throughput Benchmark...")
+    if max_hours > 0:
+        logger.info("Benchmarking throughput to set max_steps...")
+        bench_accel = Accelerator(log_with=None, mixed_precision=accelerator.mixed_precision)
+        bench_cfg = dict(cfg)
+        bench_cfg.update({
+            "push_to_hub": False,
+            "hub_strategy": "no",
+            "hub_model_id": None,
+            "run_name": None,
+        })
+        bench_trainer = build_trainer(
+            bench_cfg, model, tokenizer, train_ds, eval_ds, callbacks
+        )
+        # note: trainer isn’t prepared yet, so pass it directly
+        steps_per_sec = benchmark_throughput(bench_accel, bench_trainer, num_batches=20)
+        total_steps   = int(steps_per_sec * max_hours * 3600 * 0.95)
+        warmup_ratio  = float(cfg.get("warmup_ratio", 0.08))
+        cfg["max_steps"]   = total_steps
+        cfg["warmup_steps"] = int(total_steps * warmup_ratio)
+        logger.info(
+            "→ steps_per_sec: %.2f, total_steps: %d, warmup_steps: %d",
+            steps_per_sec, cfg["max_steps"], cfg["warmup_steps"]
+        )
+    
     trainer = build_trainer(cfg, model, tokenizer, train_ds, eval_ds, callbacks)
 
-    logger.info("Starting training...")
+    logger.info("Starting Full Model Training...")
+
     trainer = accelerator.prepare(trainer)
     trainer.train()
+
 
 
 if __name__ == '__main__':
