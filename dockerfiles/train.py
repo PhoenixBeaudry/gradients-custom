@@ -341,6 +341,11 @@ def main():
     max_hours = int(cfg.get('hours_to_complete'))  # e.g. 4.0
     if max_hours is not None:
         callbacks.append(TimeLimitCallback(max_hours))
+
+    try:
+        model = torch.compile(model, fullgraph=False, dynamic=True)
+    except Exception as e:
+        logger.warning(f"torch.compile failed: {e}. Continuing with eager execution.")
     
     trainer = build_trainer(cfg, model, tokenizer, train_ds, eval_ds, callbacks)
 
