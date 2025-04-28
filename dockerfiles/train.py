@@ -87,9 +87,8 @@ def setup_logger() -> logging.Logger:
 
 def prepare_tokenizer(model_name: str, hub_token: str = None) -> AutoTokenizer:
     tokenizer = AutoTokenizer.from_pretrained(
-        model_name, use_fast=True, use_auth_token=hub_token
+        model_name, use_fast=True, use_auth_token=hub_token, padding_side="left"
     )
-    tokenizer.padding_side = 'left'
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
