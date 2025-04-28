@@ -3,7 +3,7 @@ import os
 import argparse
 import logging
 import yaml
-from ignite.engine import Engine
+from ignite.engine import Engine, Events
 from ignite.handlers.lr_finder import FastaiLRFinder
 from torch.utils.data import DataLoader
 import torch
@@ -220,6 +220,15 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         loss.backward()
         optimizer.step()
         return loss.item()
+    
+    # 6) attach a progress logger
+    @trainer.on(Events.ITERATION_COMPLETED(every=1))
+    def log_progress(engine):
+        it   = engine.state.iteration
+        loss = engine.state.output
+        lr   = optimizer.param_groups[0]['lr']
+        accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
+
 
     trainer = Engine(train_step)
     lr_finder = FastaiLRFinder()
