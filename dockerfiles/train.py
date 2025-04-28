@@ -19,6 +19,8 @@ from transformers import (
     EarlyStoppingCallback,
     SchedulerType,
 )
+import time
+from transformers import TrainerCallback, TrainerControl, TrainerState
 
 # Optional imports for LoRA adapters and DPO
 try:
@@ -33,6 +35,34 @@ except ImportError:
 
 # Disable parallel tokenizer threads to avoid warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+###### Custom Callbacks #####
+class TimeLimitCallback(TrainerCallback):
+    """Stop training after a fixed number of hours."""
+
+    def __init__(self, max_hours: float):
+        """
+        Args:
+            max_hours: training time budget in hours
+        """
+        self.max_seconds = max_hours * 3600.0 * 0.95
+        self.start_time: float | None = None
+
+    def on_train_begin(self, args, state: TrainerState, control: TrainerControl, **kwargs):
+        # record the training start time
+        self.start_time = time.time()
+        return control
+
+    def on_step_end(self, args, state: TrainerState, control: TrainerControl, **kwargs):
+        # only check once we've started
+        if self.start_time is None:
+            return control
+        elapsed = time.time() - self.start_time
+        if elapsed >= self.max_seconds:
+            print(f"\n⏱️  Reached time limit of {self.max_seconds/3600:.2f}h — stopping training.")
+            control.should_training_stop = True
+        return control
 
 
 def parse_args():
@@ -308,6 +338,11 @@ def main():
         callbacks.append(
             EarlyStoppingCallback(early_stopping_patience=cfg.get('early_stopping_patience', 8))
         )
+    # add time‐limit
+    max_hours = cfg.get('hours_to_complete')  # e.g. 4.0
+    if max_hours is not None:
+        callbacks.append(TimeLimitCallback(max_hours))
+
 
     trainer = build_trainer(cfg, model, tokenizer, train_ds, eval_ds, callbacks)
 
