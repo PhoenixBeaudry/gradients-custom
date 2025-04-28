@@ -218,10 +218,14 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     trainer = Engine(train_step)
     lr_finder = FastaiLRFinder()
     lr_finder.attach(
-        trainer, optimizer,
-        start_lr=start_lr,
+        trainer,
+        to_save={"model": model, "optimizer": optimizer}, 
+        start_lr=start_lr, 
         end_lr=end_lr,
         num_iter=num_iter,
+        step_mode="linear",
+        smooth_f=0.05,
+        diverge_th=5.0,
     )
 
     # 7) define and register a progress handler
