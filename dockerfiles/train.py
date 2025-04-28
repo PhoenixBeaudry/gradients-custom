@@ -200,34 +200,32 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
     return train_ds, eval_ds
 
-def benchmark_throughput(
-    accelerator, trainer, num_batches: int = 20
-) -> float:
-    """
-    Run `num_batches` of the train DataLoader (no grad) to estimate
-    steps/sec. Returns steps_per_sec.
-    """
-    loader = trainer.get_train_dataloader()
-    model, optimizer, _, _ = accelerator.prepare(
-        trainer.model, trainer.optimizer, trainer.lr_scheduler, loader
-    )
-    # warm up one batch
-    batch = next(iter(loader))
-    with torch.no_grad():
-        _ = model(**batch)
+def benchmark_throughput(accel: Accelerator, model, optimizer, loader, num_batches=20):
+    # model.train() so we do grads + all‐reduce
+    model.train()
+    model, optimizer, loader = accel.prepare(model, optimizer, loader)
 
-    # synchronize and time
+    # warm-up
+    batch = next(iter(loader))
+    outputs = model(**batch)
+    accel.backward(outputs.loss)
+    optimizer.step()
+    optimizer.zero_grad()
     torch.cuda.synchronize()
+
+    # timing
     start = time.perf_counter()
     it = iter(loader)
     for _ in range(num_batches):
         batch = next(it)
-        with torch.no_grad():
-            _ = model(**batch)
+        outputs = model(**batch)
+        accel.backward(outputs.loss)
+        optimizer.step()
+        optimizer.zero_grad()
     torch.cuda.synchronize()
     end = time.perf_counter()
 
-    return num_batches / (end - start)
+    return num_batches / (end - start)  # global steps/sec
 
 
 def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
@@ -372,9 +370,9 @@ def main():
     if max_hours is not None:
         callbacks.append(TimeLimitCallback(max_hours))
 
-    logger.info("Starting Throughput Benchmark...")
+    
     if max_hours > 0:
-        logger.info("Benchmarking throughput to set max_steps...")
+        logger.info("Starting Throughput Benchmark...")
         bench_accel = Accelerator(log_with=None, mixed_precision=accelerator.mixed_precision)
         bench_cfg = dict(cfg)
         bench_cfg.update({
@@ -386,16 +384,20 @@ def main():
         bench_trainer = build_trainer(
             bench_cfg, model, tokenizer, train_ds, eval_ds, callbacks
         )
-        # note: trainer isn’t prepared yet, so pass it directly
-        steps_per_sec = benchmark_throughput(bench_accel, bench_trainer, num_batches=20)
-        total_steps   = int(steps_per_sec * max_hours * 3600 * 0.95)
-        warmup_ratio  = float(cfg.get("warmup_ratio", 0.08))
-        cfg["max_steps"]   = total_steps
+        # only rank 0 actually does the timing
+        if bench_accel.local_process_index == 0:
+            # note: trainer isn’t prepared yet, so pass it directly
+            steps_per_sec = benchmark_throughput(bench_accel, bench_trainer, num_batches=20)
+        else:
+            steps_per_sec = 0.0
+
+         # broadcast from rank 0 → all ranks
+        steps_per_sec = bench_accel.broadcast(steps_per_sec, src=0)
+
+        total_steps  = int(steps_per_sec * args.hours_to_complete * 3600 * 0.95)
+        warmup_ratio = float(cfg.get("warmup_ratio", 0.07))
+        cfg["max_steps"]    = total_steps
         cfg["warmup_steps"] = int(total_steps * warmup_ratio)
-        logger.info(
-            "→ steps_per_sec: %.2f, total_steps: %d, warmup_steps: %d",
-            steps_per_sec, cfg["max_steps"], cfg["warmup_steps"]
-        )
     
     trainer = build_trainer(cfg, model, tokenizer, train_ds, eval_ds, callbacks)
 
