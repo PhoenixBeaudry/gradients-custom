@@ -369,6 +369,7 @@ def main():
 
     # only SFT & only on rank0
     if cfg.get("find_lr", False) and not rl_mode:
+        logger.info("LR Finder is active. Finding Optimized LR.....")
         if accelerator.is_local_main_process:
             suggested = find_lr(cfg, model, train_ds, tokenizer, accelerator)
         else:
