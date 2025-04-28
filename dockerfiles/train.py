@@ -173,19 +173,20 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
 def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     # 1) cast config values
-    batch_size  = int(cfg.get("micro_batch_size", 4))
-    num_workers = int(cfg.get("dataloader_num_workers", 8))
-    start_lr    = float(cfg.get("lr_finder_start", 1e-7))
-    end_lr      = float(cfg.get("lr_finder_end", 10.0))
-    num_iter    = int(cfg.get("lr_finder_steps", 100))
+    batch_size   = int(cfg.get("micro_batch_size", 4))
+    num_workers  = int(cfg.get("dataloader_num_workers", 8))
+    start_lr     = float(cfg.get("lr_finder_start", 1e-7))
+    end_lr       = float(cfg.get("lr_finder_end", 1e-1))
+    num_iter     = int(cfg.get("lr_finder_steps", 100))
+    log_interval = int(cfg.get("lr_finder_log_interval", max(1, num_iter // 10)))
 
-    # 2) prune away any columns except the ones collator needs
+    # 2) prune away any extra columns
     keep = {"input_ids", "attention_mask"}
     to_remove = [c for c in train_ds.column_names if c not in keep]
     if to_remove:
         train_ds = train_ds.remove_columns(to_remove)
 
-    # 3) build a small DataLoader
+    # 3) small DataLoader
     collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
     loader = DataLoader(
         train_ds,
@@ -196,51 +197,50 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         pin_memory=True,
     )
 
-    # 4) move model & create optimizer
-    device = accelerator.device
+    # 4) move model & optimizer
+    device    = accelerator.device
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
-    # 5) define a bare‐bones train step
+    # 5) custom train step
     def train_step(engine, batch):
         model.train()
-        # move everything to device
-        batch = {k: v.to(accelerator.device) for k, v in batch.items()}
-
-        # pop any pre-existing labels so we don’t double-send them
-        labels = batch.pop("labels", None)
-        # if your collator didn’t give labels, fall back to input_ids
-        if labels is None:
-            labels = batch["input_ids"]
-
-        # now call the model just once with labels
+        batch = {k: v.to(device) for k, v in batch.items()}
+        labels = batch.pop("labels", batch["input_ids"])
         loss = model(**batch, labels=labels).loss
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         return loss.item()
-    
-    # 6) attach a progress logger
-    @trainer.on(Events.ITERATION_COMPLETED(every=1))
-    def log_progress(engine):
-        it   = engine.state.iteration
-        loss = engine.state.output
-        lr   = optimizer.param_groups[0]['lr']
-        accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
 
-
+    # 6) build trainer and attach finder
     trainer = Engine(train_step)
     lr_finder = FastaiLRFinder()
     lr_finder.attach(
-        trainer,
-        optimizer,
-        start_lr=float(cfg["lr_finder_start"]),
-        end_lr=float(cfg["lr_finder_end"]),
-        num_iter=int(cfg["lr_finder_steps"]),
+        trainer, optimizer,
+        start_lr=start_lr,
+        end_lr=end_lr,
+        num_iter=num_iter,
     )
+
+    # 7) define and register a progress handler
+    def log_progress(engine):
+        it   = engine.state.iteration
+        if it % log_interval == 0 or it == num_iter:
+            loss = engine.state.output
+            lr   = optimizer.param_groups[0]['lr']
+            accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
+
+    trainer.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
+
+    # 8) run the sweep
     trainer.run(loader, max_epochs=1)
-    return lr_finder.suggested_lr()
+
+    # 9) return the suggestion
+    suggested = lr_finder.suggested_lr()
+    accelerator.print(f"🔍 Final LR-finder suggestion: {suggested:.2e}")
+    return suggested
 
 
 
