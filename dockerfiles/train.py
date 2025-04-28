@@ -186,7 +186,7 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     model.to(device)
 
     # optimizer for finder (start very small)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.get('lr_finder_start', 1e-7))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=float(cfg.get('lr_finder_start', 1e-7)))
 
     # make a no-op loss (we only need backward())
     def _update(engine, batch):
@@ -202,8 +202,8 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
 
     # attach the finder
     lr_finder = FastaiLRFinder()
-    lr_finder.attach(trainer, optimizer, start_lr=cfg.get('lr_finder_start', 1e-7),
-                     end_lr=cfg.get('lr_finder_end', 10), num_iter=cfg.get('lr_finder_steps', 100))
+    lr_finder.attach(trainer, optimizer, start_lr=float(cfg.get('lr_finder_start', 1e-7)),
+                     end_lr=float(cfg.get('lr_finder_end', 10)), num_iter=int(cfg.get('lr_finder_steps', 100)))
 
     # run only a handful of iterations
     trainer.run(train_loader, max_epochs=1)
