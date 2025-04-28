@@ -198,7 +198,7 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     )
 
     # 4) model + optimizer init
-    device = accelerator.device
+    device    = accelerator.device
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
@@ -213,17 +213,10 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         optimizer.step()
         return loss.item()
 
-    # build the trainer
+    # 6) build the trainer
     trainer = Engine(train_step)
 
-    # 7) termination handler (stop after num_iter)
-    @trainer.on(Events.ITERATION_COMPLETED)
-    def terminate_after_n_iters(engine):
-        if engine.state.iteration >= num_iter:
-            engine.terminate()
-
-    # 8) progress logger
-    @trainer.on(Events.ITERATION_COMPLETED)
+    # 7) define handlers
     def log_progress(engine):
         it = engine.state.iteration
         if it % log_interval == 0 or it == num_iter:
@@ -231,14 +224,15 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
             loss = engine.state.output
             accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
 
-    trainer.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
-    trainer.add_event_handler(Events.ITERATION_COMPLETED, terminate_after_n_iters)
-    
-    # set up the finder
-    lr_finder = FastaiLRFinder()
-    to_save = {"model": model, "optimizer": optimizer}
+    def terminate_after_n_iters(engine):
+        if engine.state.iteration >= num_iter:
+            engine.terminate()
 
-    # now run it in a context manager so results actually get recorded
+    # 8) set up the finder
+    lr_finder = FastaiLRFinder()
+    to_save   = {"model": model, "optimizer": optimizer}
+
+    # 9) run in context so results get recorded, and attach handlers
     with lr_finder.attach(
         trainer,
         to_save=to_save,
@@ -249,12 +243,18 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         smooth_f=0.05,
         diverge_th=5.0,
     ) as trainer_with_finder:
+
+        # attach our handlers just once
+        trainer_with_finder.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
+        trainer_with_finder.add_event_handler(Events.ITERATION_COMPLETED, terminate_after_n_iters)
+
         trainer_with_finder.run(loader, max_epochs=1)
 
-    # *after* the with-block, we can safely ask for the suggestion
+    # 10) get the suggestion
     suggested = lr_finder.lr_suggestion()
     accelerator.print(f"🔍 Final LR-finder suggestion: {suggested:.2e}")
     return float(suggested)
+
 
 
 
