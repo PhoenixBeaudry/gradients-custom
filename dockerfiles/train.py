@@ -204,28 +204,33 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     # 5) define a bare‐bones train step
     def train_step(engine, batch):
         model.train()
-        batch = {k: v.to(device) for k,v in batch.items()}
-        loss = model(**batch, labels=batch["input_ids"]).loss
+        # move everything to device
+        batch = {k: v.to(accelerator.device) for k, v in batch.items()}
+
+        # pop any pre-existing labels so we don’t double-send them
+        labels = batch.pop("labels", None)
+        # if your collator didn’t give labels, fall back to input_ids
+        if labels is None:
+            labels = batch["input_ids"]
+
+        # now call the model just once with labels
+        loss = model(**batch, labels=labels).loss
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         return loss.item()
 
     trainer = Engine(train_step)
-
-    # 6) attach the finder
     lr_finder = FastaiLRFinder()
     lr_finder.attach(
         trainer,
         optimizer,
-        start_lr=start_lr,
-        end_lr=end_lr,
-        num_iter=num_iter,
+        start_lr=float(cfg["lr_finder_start"]),
+        end_lr=float(cfg["lr_finder_end"]),
+        num_iter=int(cfg["lr_finder_steps"]),
     )
-
-    # 7) run a single pass
     trainer.run(loader, max_epochs=1)
-
     return lr_finder.suggested_lr()
 
 
