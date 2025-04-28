@@ -172,17 +172,14 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
 
 def find_lr(cfg, model, train_ds, tokenizer, accelerator):
-    from torch.utils.data import DataLoader
-    from transformers import DataCollatorForLanguageModeling
-    from ignite.engine import Engine
-    from ignite.handlers.lr_finder import FastaiLRFinder
-    import torch
+
+    logger = logging.getLogger(__name__)
 
     # 1) prepare DataLoader
-    batch_size = int(cfg.get("micro_batch_size", 4))
-    num_workers = int(cfg.get("dataloader_num_workers", 8))
-    collator   = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    dataloader = DataLoader(
+    batch_size   = int(cfg.get("micro_batch_size", 4))
+    num_workers  = int(cfg.get("dataloader_num_workers", 8))
+    collator     = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    dataloader   = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
@@ -191,8 +188,8 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     )
 
     # 2) optimizer with a tiny start_lr
-    start_lr  = float(cfg.get("start_lr", 1e-7))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
+    start_lr     = float(cfg.get("lr_finder_start", 1e-7))
+    optimizer    = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
     # 3) move everything onto the right device / distributed setup
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
@@ -208,26 +205,36 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
 
     engine = Engine(_update)
 
-    # 5) attach the LR finder
+    # 5) figure out how many iterations we'll run, and log every 10%
+    num_iter = int(cfg.get("lr_finder_steps"))
+    if num_iter is None:
+        num_iter = len(dataloader)
+    log_every = max(1, num_iter // 10)
+
+    @engine.on(Events.ITERATION_COMPLETED(every=log_every))
+    def _log_progress(engine):
+        lr   = optimizer.param_groups[0]["lr"]
+        loss = engine.state.output
+        logger.info(f"[LR Finder] iter {engine.state.iteration}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
+
+    # 6) attach and run the FastaiLRFinder
     lr_finder = FastaiLRFinder()
-    # we need the *unwrapped* model for state restoration
-    to_save = {
-        "model": accelerator.unwrap_model(model),
+    to_save   = {
+        "model":     accelerator.unwrap_model(model),
         "optimizer": optimizer
     }
-    num_iter = cfg.get("lr_finder_steps", None)   # or leave None to default to one epoch
-
     with lr_finder.attach(
             engine,
             to_save=to_save,
             start_lr=start_lr,
-            end_lr=float(cfg.get("end_lr", 10.0)),
+            end_lr=float(cfg.get("lr_finder_end", 0.1)),
             num_iter=num_iter
         ):
         engine.run(dataloader)
 
-    # 6) pull out the suggested LR
+    # 7) return the suggested LR
     return lr_finder.lr_suggestion()
+
 
 
 def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
