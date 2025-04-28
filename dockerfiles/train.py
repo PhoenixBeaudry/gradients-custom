@@ -89,11 +89,7 @@ def prepare_tokenizer(model_name: str, hub_token: str = None) -> AutoTokenizer:
     tokenizer = AutoTokenizer.from_pretrained(
         model_name, use_fast=True, use_auth_token=hub_token
     )
-    if "Qwen" in model_name:
-        tokenizer.padding_side = 'left'
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
+    tokenizer.padding_side = 'left'
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
@@ -302,7 +298,7 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         args=tf_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False, pad_to_multiple_of=8),
         callbacks=callbacks,
         processing_class=tokenizer,
     )
