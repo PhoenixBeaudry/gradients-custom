@@ -60,6 +60,9 @@ def prepare_tokenizer(model_name: str, hub_token: str = None) -> AutoTokenizer:
         tokenizer.padding_side = 'left'
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
 
 
@@ -172,6 +175,7 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         dpo_args = DPOConfig(
             output_dir=cfg.get('output_dir', './outputs'),
             per_device_train_batch_size=cfg.get('micro_batch_size', 4),
+            padding_value=tokenizer.pad_token_id,
             auto_find_batch_size=True,
             bf16=True,
             gradient_accumulation_steps=cfg.get('gradient_accumulation_steps', 1),
