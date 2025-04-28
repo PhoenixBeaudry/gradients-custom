@@ -174,31 +174,36 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         if DPOTrainer is None:
             raise ImportError("trl library is required for DPO training.")
 
+        # ensure pad_token_id exists
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        pad_id = tokenizer.pad_token_id
+
         dpo_args = DPOConfig(
             output_dir=cfg.get('output_dir', './outputs'),
-            per_device_train_batch_size=cfg.get('micro_batch_size', 4),
-            padding_value=tokenizer.pad_token_id,
+            per_device_train_batch_size=int(cfg.get('micro_batch_size', 4)),
+            padding_value=pad_id,
             auto_find_batch_size=True,
-            bf16=True,
-            gradient_accumulation_steps=cfg.get('gradient_accumulation_steps', 1),
-            dataloader_num_workers=8,
-            num_train_epochs=cfg.get('num_epochs', 1),
-            learning_rate=cfg.get('learning_rate', 5e-5),
+            bf16=bool(cfg.get('bf16', False)),
+            gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 1)),
+            dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
+            num_train_epochs=int(cfg.get('num_epochs', 1)),
+            learning_rate=float(cfg.get('learning_rate', 5e-5)),
             optim=cfg.get('optimizer', 'adamw_torch_fused'),
-            warmup_steps=cfg.get('warmup_steps', 25),
+            warmup_steps=int(cfg.get('warmup_steps', 25)),
             lr_scheduler_type=cfg.get('lr_scheduler_type', SchedulerType.COSINE_WITH_RESTARTS),
-            max_steps=cfg.get('max_steps', -1),
-            logging_steps=cfg.get('logging_steps', 100),
+            max_steps=int(cfg.get('max_steps', -1)),
+            logging_steps=int(cfg.get('logging_steps', 100)),
             eval_strategy='steps',
             save_strategy='best',
-            eval_steps=cfg.get('eval_steps'),
-            save_steps=cfg.get('save_steps'),
-            save_total_limit=cfg.get('save_total_limit'),
+            eval_steps=int(cfg.get('eval_steps')) if cfg.get('eval_steps') is not None else None,
+            save_steps=int(cfg.get('save_steps')) if cfg.get('save_steps') is not None else None,
+            save_total_limit=int(cfg.get('save_total_limit')) if cfg.get('save_total_limit') is not None else None,
             load_best_model_at_end=True,
             metric_for_best_model=cfg.get('metric_for_best_model', 'eval_loss'),
-            greater_is_better=cfg.get('greater_is_better', False),
-            weight_decay=cfg.get('weight_decay', 0.0),
-            fp16=cfg.get('fp16', False),
+            greater_is_better=bool(cfg.get('greater_is_better', False)),
+            weight_decay=float(cfg.get('weight_decay', 0.0)),
+            fp16=bool(cfg.get('fp16', False)),
             logging_dir=cfg.get('logging_dir', './logs'),
             push_to_hub=True,
             run_name=cfg.get('wandb_run'),
@@ -225,31 +230,31 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
             callbacks=callbacks,
         )
 
-    # Default: SFT Trainer
+    # ── SFT Trainer branch ────────────────────────────────────────
     tf_args = TrainingArguments(
         output_dir=cfg.get('output_dir', './outputs'),
-        per_device_train_batch_size=cfg.get('micro_batch_size', 4),
+        per_device_train_batch_size=int(cfg.get('micro_batch_size', 4)),
         auto_find_batch_size=True,
-        bf16=True,
-        gradient_accumulation_steps=cfg.get('gradient_accumulation_steps', 1),
-        dataloader_num_workers=8,
-        num_train_epochs=cfg.get('num_epochs', 1),
-        learning_rate=cfg.get('learning_rate', 5e-5),
+        bf16=bool(cfg.get('bf16', False)),
+        gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 1)),
+        dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
+        num_train_epochs=int(cfg.get('num_epochs', 1)),
+        learning_rate=float(cfg.get('learning_rate', 5e-5)),
         optim=cfg.get('optimizer', 'adamw_torch_fused'),
-        warmup_steps=cfg.get('warmup_steps', 25),
+        warmup_steps=int(cfg.get('warmup_steps', 25)),
         lr_scheduler_type=cfg.get('lr_scheduler_type', SchedulerType.COSINE_WITH_RESTARTS),
         load_best_model_at_end=True,
-        max_steps=cfg.get('max_steps', -1),
-        logging_steps=cfg.get('logging_steps', 100),
+        max_steps=int(cfg.get('max_steps', -1)),
+        logging_steps=int(cfg.get('logging_steps', 100)),
         eval_strategy='steps' if eval_ds else 'no',
         save_strategy='best',
-        eval_steps=cfg.get('eval_steps'),
-        save_steps=cfg.get('save_steps'),
-        save_total_limit=cfg.get('save_total_limit'),
+        eval_steps=int(cfg.get('eval_steps')) if cfg.get('eval_steps') is not None else None,
+        save_steps=int(cfg.get('save_steps')) if cfg.get('save_steps') is not None else None,
+        save_total_limit=int(cfg.get('save_total_limit')) if cfg.get('save_total_limit') is not None else None,
         metric_for_best_model=cfg.get('metric_for_best_model', 'eval_loss'),
-        greater_is_better=cfg.get('greater_is_better', False),
-        weight_decay=cfg.get('weight_decay', 0.0),
-        fp16=cfg.get('fp16', False),
+        greater_is_better=bool(cfg.get('greater_is_better', False)),
+        weight_decay=float(cfg.get('weight_decay', 0.0)),
+        fp16=bool(cfg.get('fp16', False)),
         logging_dir=cfg.get('logging_dir', './logs'),
         push_to_hub=True,
         run_name=cfg.get('wandb_run'),
@@ -270,6 +275,7 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         callbacks=callbacks,
         processing_class=tokenizer,
     )
+
 
 
 def main():
