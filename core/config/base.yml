@@ -31,7 +31,7 @@ auto_find_batch_size: true
 gradient_accumulation_steps: 4
 micro_batch_size: 2
 num_epochs: 3
-optimizer: adamw_torch_fused
+optimizer: lion_8bit
 lr_scheduler: cosine
 learning_rate: 1e-5
 group_by_length: true
@@ -77,7 +77,7 @@ debug:
 
 deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
   
-weight_decay: 0.0
+weight_decay: 0.01
 plugins:
   - axolotl.integrations.liger.LigerPlugin
 liger_rope: true

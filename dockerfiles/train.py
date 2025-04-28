@@ -21,6 +21,7 @@ from transformers import (
 )
 import time
 from transformers import TrainerCallback, TrainerControl, TrainerState
+import bitsandbytes as bnb
 
 # Optional imports for LoRA adapters and DPO
 try:
@@ -213,17 +214,16 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
 
         dpo_args = DPOConfig(
             output_dir=cfg.get('output_dir', './outputs'),
-            per_device_train_batch_size=int(cfg.get('micro_batch_size', 4)),
             padding_value=pad_id,
             auto_find_batch_size=True,
             bf16=bool(cfg.get('bf16', False)),
-            gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 1)),
+            gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 2)),
             dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
             num_train_epochs=int(cfg.get('num_epochs', 1)),
-            learning_rate=float(cfg.get('learning_rate', 5e-5)),
-            optim=cfg.get('optimizer', 'adamw_torch_fused'),
+            learning_rate=float(cfg.get('learning_rate', 5e-5))/3,
+            optim=cfg.get('optimizer', 'lion_8bit'),
             warmup_steps=int(cfg.get('warmup_steps', 25)),
-            lr_scheduler_type=cfg.get('lr_scheduler_type', SchedulerType.COSINE_WITH_RESTARTS),
+            lr_scheduler_type=SchedulerType.COSINE_WITH_RESTARTS,
             max_steps=int(cfg.get('max_steps', -1)),
             logging_steps=int(cfg.get('logging_steps', 100)),
             eval_strategy='steps',
@@ -265,16 +265,15 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
     # ── SFT Trainer branch ────────────────────────────────────────
     tf_args = TrainingArguments(
         output_dir=cfg.get('output_dir', './outputs'),
-        per_device_train_batch_size=int(cfg.get('micro_batch_size', 4)),
         auto_find_batch_size=True,
         bf16=bool(cfg.get('bf16', False)),
-        gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 1)),
+        gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 2)),
         dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
         num_train_epochs=int(cfg.get('num_epochs', 1)),
-        learning_rate=float(cfg.get('learning_rate', 5e-5)),
-        optim=cfg.get('optimizer', 'adamw_torch_fused'),
+        learning_rate=float(cfg.get('learning_rate', 1e-5))/3,
+        optim=cfg.get('optimizer', 'lion_8bit'),
         warmup_steps=int(cfg.get('warmup_steps', 25)),
-        lr_scheduler_type=cfg.get('lr_scheduler_type', SchedulerType.COSINE_WITH_RESTARTS),
+        lr_scheduler_type=SchedulerType.COSINE_WITH_RESTARTS,
         load_best_model_at_end=True,
         max_steps=int(cfg.get('max_steps', -1)),
         logging_steps=int(cfg.get('logging_steps', 100)),
