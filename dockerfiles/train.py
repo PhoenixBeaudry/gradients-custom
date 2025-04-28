@@ -47,7 +47,7 @@ class TimeLimitCallback(TrainerCallback):
         Args:
             max_hours: training time budget in hours
         """
-        self.max_seconds = max_hours * 3600.0 * 0.99
+        self.max_seconds = max_hours * 3600.0 * 0.95
         self.start_time: float | None = None
 
     def on_train_begin(self, args, state: TrainerState, control: TrainerControl, **kwargs):
