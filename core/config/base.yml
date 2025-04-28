@@ -75,7 +75,7 @@ max_steps: 10000
 find_lr: true              # turn on the finder
 lr_finder_start: 1e-7      # (optional) override defaults
 lr_finder_end: 10
-lr_finder_steps: 100
+lr_finder_steps: 20
 
 debug:
 
