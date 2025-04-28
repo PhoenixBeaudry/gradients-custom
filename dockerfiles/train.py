@@ -170,9 +170,8 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
     return train_ds, eval_ds
 
-
 def find_lr(cfg, model, train_ds, tokenizer, accelerator):
-    # 1) cast config values
+    # 1) Cast config values
     batch_size   = int(cfg.get("micro_batch_size", 4))
     num_workers  = int(cfg.get("dataloader_num_workers", 8))
     start_lr     = float(cfg.get("lr_finder_start", 1e-7))
@@ -180,13 +179,13 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     num_iter     = int(cfg.get("lr_finder_steps", 100))
     log_interval = int(cfg.get("lr_finder_log_interval", max(1, num_iter // 10)))
 
-    # 2) strip everything except tokens
+    # 2) Strip everything except input_ids/attention_mask
     keep      = {"input_ids", "attention_mask"}
     to_remove = [c for c in train_ds.column_names if c not in keep]
     if to_remove:
         train_ds = train_ds.remove_columns(to_remove)
 
-    # 3) small DataLoader
+    # 3) Small DataLoader
     collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
     loader   = DataLoader(
         train_ds,
@@ -197,12 +196,12 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         pin_memory=True,
     )
 
-    # 4) model + optimizer init
+    # 4) Model + Optimizer init
     device    = accelerator.device
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
-    # 5) basic train step
+    # 5) Define a bare‐bones train step
     def train_step(engine, batch):
         model.train()
         batch = {k: v.to(device) for k, v in batch.items()}
@@ -213,10 +212,11 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         optimizer.step()
         return loss.item()
 
-    # 6) build the trainer
+    # 6) Build the Engine
     trainer = Engine(train_step)
 
-    # 7) define handlers
+    # 7) Attach your progress logger
+    @trainer.on(Events.ITERATION_COMPLETED)
     def log_progress(engine):
         it = engine.state.iteration
         if it % log_interval == 0 or it == num_iter:
@@ -224,15 +224,11 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
             loss = engine.state.output
             accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
 
-    def terminate_after_n_iters(engine):
-        if engine.state.iteration >= num_iter:
-            engine.terminate()
-
-    # 8) set up the finder
+    # 8) Set up the finder
     lr_finder = FastaiLRFinder()
     to_save   = {"model": model, "optimizer": optimizer}
 
-    # 9) run in context so results get recorded, and attach handlers
+    # 9) Run inside the context manager *and* tell run() to stop after num_iter
     with lr_finder.attach(
         trainer,
         to_save=to_save,
@@ -243,14 +239,10 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         smooth_f=0.05,
         diverge_th=5.0,
     ) as trainer_with_finder:
+        # epoch_length caps the number of iterations per epoch
+        trainer_with_finder.run(loader, max_epochs=1, epoch_length=num_iter)
 
-        # attach our handlers just once
-        trainer_with_finder.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
-        trainer_with_finder.add_event_handler(Events.ITERATION_COMPLETED, terminate_after_n_iters)
-
-        trainer_with_finder.run(loader, max_epochs=1)
-
-    # 10) get the suggestion
+    # 10) Ask for the suggestion
     suggested = lr_finder.lr_suggestion()
     accelerator.print(f"🔍 Final LR-finder suggestion: {suggested:.2e}")
     return float(suggested)
