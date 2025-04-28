@@ -231,7 +231,9 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
             loss = engine.state.output
             accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
 
-
+    trainer.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
+    trainer.add_event_handler(Events.ITERATION_COMPLETED, terminate_after_n_iters)
+    
     # set up the finder
     lr_finder = FastaiLRFinder()
     to_save = {"model": model, "optimizer": optimizer}
