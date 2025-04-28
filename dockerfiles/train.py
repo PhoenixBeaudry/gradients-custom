@@ -239,6 +239,7 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
             hub_token=cfg.get('hub_token'),
             hub_strategy='every_save',
             use_liger_kernel=True,
+            remove_unused_columns=False,
         )
         logger = setup_logger()
         logger.info("Initializing DPO Trainer")
@@ -289,6 +290,7 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         hub_token=cfg.get('hub_token'),
         hub_strategy='every_save',
         use_liger_kernel=True,
+        remove_unused_columns=False,
     )
     logger = setup_logger()
     logger.info("Initializing SFT Trainer")
