@@ -72,10 +72,6 @@ warmup_steps: 50
 eval_table_size:
 eval_max_new_tokens: 128
 max_steps: 10000
-find_lr: true              # turn on the finder
-lr_finder_start: 1e-7 
-lr_finder_end: 1e-1
-lr_finder_steps: 100
 
 debug:
 

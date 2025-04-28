@@ -171,91 +171,6 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
     return train_ds, eval_ds
 
 
-def find_lr(cfg, model, train_ds, tokenizer, accelerator):
-    import logging
-    import torch
-    from torch.utils.data import DataLoader
-    from transformers import DataCollatorForLanguageModeling
-    from ignite.engine import Engine, Events
-    from ignite.handlers.lr_finder import FastaiLRFinder
-
-    logger = logging.getLogger(__name__)
-
-    # ── 0) DROP non‐tensor fields so collator only pads token tensors ──
-    try:
-        # huggingface Dataset has .column_names
-        token_cols = {"input_ids", "attention_mask"}
-        drop_cols  = [c for c in train_ds.column_names if c not in token_cols]
-        if drop_cols:
-            train_ds = train_ds.remove_columns(drop_cols)
-    except Exception:
-        # if it's not a huggingface Dataset, silently skip
-        pass
-
-    # ── 1) prepare DataLoader ────────────────────────────────────────
-    batch_size  = int(cfg.get("micro_batch_size", 4))
-    num_workers = int(cfg.get("dataloader_num_workers", 8))
-    collator    = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    dataloader  = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        collate_fn=collator,
-    )
-
-    # ── 2) optimizer with a tiny start_lr ───────────────────────────
-    start_lr  = float(cfg.get("start_lr", 1e-7))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
-
-    # ── 3) no DDP here—just send model to the right device ──────────
-    device = accelerator.device
-    model.to(device)
-
-    # ── 4) ignite update fn that moves batches to device ────────────
-    def _update(engine, batch):
-        model.train()
-        batch = {k: v.to(device) for k, v in batch.items()}
-        loss = model(**batch).loss
-        optimizer.zero_grad()
-        accelerator.backward(loss)
-        optimizer.step()
-        return loss.item()
-
-    engine = Engine(_update)
-
-    # ── 5) logging every 10% ────────────────────────────────────────
-    num_iter = int(cfg.get("lr_finder_steps") or len(dataloader))
-    log_every = max(1, num_iter // 10)
-
-    @engine.on(Events.ITERATION_COMPLETED(every=log_every))
-    def _log_progress(engine):
-        lr   = optimizer.param_groups[0]["lr"]
-        loss = engine.state.output
-        logger.info(f"[LR‐Finder] iter {engine.state.iteration}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
-
-    # ── 6) attach & run the FastaiLRFinder ──────────────────────────
-    lr_finder = FastaiLRFinder()
-    to_save   = {
-        "model":     accelerator.unwrap_model(model),
-        "optimizer": optimizer,
-    }
-    with lr_finder.attach(
-        engine,
-        to_save=to_save,
-        start_lr=start_lr,
-        end_lr=float(cfg.get("end_lr", 10.0)),
-        num_iter=num_iter,
-    ):
-        engine.run(dataloader)
-
-    # ── 7) return suggested LR ──────────────────────────────────────
-    return lr_finder.lr_suggestion()
-
-
-
-
-
 def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
     if cfg.get('rl', '').lower() == 'dpo':
         if DPOTrainer is None:
@@ -387,20 +302,6 @@ def main():
     rl_mode = cfg.get('rl', '').lower() == 'dpo'
     load_fn = load_dpo_datasets if rl_mode else load_sft_datasets
     train_ds, eval_ds = load_fn(cfg, tokenizer)
-
-    # only SFT & only on rank0
-    if cfg.get("find_lr", False) and not rl_mode:
-        if accelerator.is_local_main_process:
-            logger.info("LR Finder is active. Finding Optimized LR.....")
-            suggested = find_lr(cfg, model, train_ds, tokenizer, accelerator)
-        else:
-            suggested = None
-
-        # wait for everyone, then broadcast
-        accelerator.wait_for_everyone()
-        lr = accelerator.gather_for_metrics(suggested)[0]  # rank0’s value
-        cfg["learning_rate"] = float(lr)
-        accelerator.print(f"🔍 LR-finder suggests: {lr:.2e}")
 
     callbacks = []
     if cfg.get('early_stopping', True):
