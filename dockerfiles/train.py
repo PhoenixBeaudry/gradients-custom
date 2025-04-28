@@ -163,7 +163,7 @@ def load_sft_datasets(cfg: dict, tokenizer: AutoTokenizer):
             raise ValueError("No string column found for SFT tokenization.")
 
     def tokenize_fn(batch):
-        return tokenizer(batch[text_col], truncation=True, max_length=cfg.get('sequence_len', 2048))
+        return tokenizer(batch[text_col], truncation=True, max_length=int(cfg.get('sequence_len', 2048)))
 
     train_ds = train_ds.map(tokenize_fn, batched=True)
     if eval_ds:
