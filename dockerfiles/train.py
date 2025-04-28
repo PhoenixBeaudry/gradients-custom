@@ -216,6 +216,22 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     # build the trainer
     trainer = Engine(train_step)
 
+    # 7) termination handler (stop after num_iter)
+    @trainer.on(Events.ITERATION_COMPLETED)
+    def terminate_after_n_iters(engine):
+        if engine.state.iteration >= num_iter:
+            engine.terminate()
+
+    # 8) progress logger
+    @trainer.on(Events.ITERATION_COMPLETED)
+    def log_progress(engine):
+        it = engine.state.iteration
+        if it % log_interval == 0 or it == num_iter:
+            lr   = optimizer.param_groups[0]["lr"]
+            loss = engine.state.output
+            accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
+
+
     # set up the finder
     lr_finder = FastaiLRFinder()
     to_save = {"model": model, "optimizer": optimizer}
