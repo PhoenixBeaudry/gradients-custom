@@ -387,7 +387,13 @@ def main():
         # only rank 0 actually does the timing
         if bench_accel.local_process_index == 0:
             # note: trainer isn’t prepared yet, so pass it directly
-            steps_per_sec = benchmark_throughput(bench_accel, bench_trainer, num_batches=20)
+            steps_per_sec = benchmark_throughput(
+                bench_accel,
+                bench_trainer.model,                # unwrapped model
+                bench_trainer.optimizer,            # might need to call create_optimizer_and_scheduler() first
+                bench_trainer.get_train_dataloader(),
+                num_batches=20
+            )
         else:
             steps_per_sec = 0.0
 
