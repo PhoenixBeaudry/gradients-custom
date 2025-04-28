@@ -215,15 +215,6 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     # 6) Build the Engine
     trainer = Engine(train_step)
 
-    # 7) Attach your progress logger
-    @trainer.on(Events.ITERATION_COMPLETED)
-    def log_progress(engine):
-        it = engine.state.iteration
-        if it % log_interval == 0 or it == num_iter:
-            lr   = optimizer.param_groups[0]["lr"]
-            loss = engine.state.output
-            accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
-
     # 8) Set up the finder
     lr_finder = FastaiLRFinder()
     to_save   = {"model": model, "optimizer": optimizer}
@@ -239,7 +230,13 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         smooth_f=0.05,
         diverge_th=5.0,
     ) as trainer_with_finder:
-        trainer_with_finder.add_event_handler(Events.ITERATION_COMPLETED, log_progress)
+        @trainer_with_finder.on(Events.ITERATION_COMPLETED)
+        def log_progress(engine):
+            it = engine.state.iteration
+            if it % log_interval == 0 or it == num_iter:
+                lr   = optimizer.param_groups[0]["lr"]
+                loss = engine.state.output
+                accelerator.print(f"[LR Finder] iter {it}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
         # epoch_length caps the number of iterations per epoch
         trainer_with_finder.run(loader, max_epochs=1, epoch_length=num_iter)
 
