@@ -32,7 +32,7 @@ micro_batch_size: 2
 num_epochs: 0
 optimizer: lion_8bit
 lr_scheduler: cosine
-learning_rate: 5e-5
+learning_rate: 2e-4
 group_by_length: true
 
 train_on_inputs: false
