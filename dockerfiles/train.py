@@ -246,7 +246,7 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     trainer.run(loader, max_epochs=1)
 
     # 10) grab suggestion
-    suggested = lr_finder.suggested_lr()
+    suggested = lr_finder.lr_suggestion()
     accelerator.print(f"🔍 Final LR-finder suggestion: {suggested:.2e}")
     return suggested
 
