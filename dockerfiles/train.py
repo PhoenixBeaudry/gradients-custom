@@ -172,10 +172,27 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
 
 def find_lr(cfg, model, train_ds, tokenizer, accelerator):
+    import logging
+    import torch
+    from torch.utils.data import DataLoader
+    from transformers import DataCollatorForLanguageModeling
+    from ignite.engine import Engine, Events
+    from ignite.handlers.lr_finder import FastaiLRFinder
 
     logger = logging.getLogger(__name__)
 
-    # 1) prepare DataLoader
+    # ── 0) DROP non‐tensor fields so collator only pads token tensors ──
+    try:
+        # huggingface Dataset has .column_names
+        token_cols = {"input_ids", "attention_mask"}
+        drop_cols  = [c for c in train_ds.column_names if c not in token_cols]
+        if drop_cols:
+            train_ds = train_ds.remove_columns(drop_cols)
+    except Exception:
+        # if it's not a huggingface Dataset, silently skip
+        pass
+
+    # ── 1) prepare DataLoader ────────────────────────────────────────
     batch_size  = int(cfg.get("micro_batch_size", 4))
     num_workers = int(cfg.get("dataloader_num_workers", 8))
     collator    = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -187,15 +204,15 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         collate_fn=collator,
     )
 
-    # 2) optimizer with a tiny start_lr
+    # ── 2) optimizer with a tiny start_lr ───────────────────────────
     start_lr  = float(cfg.get("start_lr", 1e-7))
     optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
-    # 3) move model to the correct device (no DDP)
+    # ── 3) no DDP here—just send model to the right device ──────────
     device = accelerator.device
     model.to(device)
 
-    # 4) define a single‐step Ignite update that moves each batch to device
+    # ── 4) ignite update fn that moves batches to device ────────────
     def _update(engine, batch):
         model.train()
         batch = {k: v.to(device) for k, v in batch.items()}
@@ -207,8 +224,8 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
 
     engine = Engine(_update)
 
-    # 5) logging every 10% of the run
-    num_iter = cfg.get("lr_finder_steps") or len(dataloader)
+    # ── 5) logging every 10% ────────────────────────────────────────
+    num_iter = int(cfg.get("lr_finder_steps") or len(dataloader))
     log_every = max(1, num_iter // 10)
 
     @engine.on(Events.ITERATION_COMPLETED(every=log_every))
@@ -217,7 +234,7 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         loss = engine.state.output
         logger.info(f"[LR‐Finder] iter {engine.state.iteration}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
 
-    # 6) attach and run the FastaiLRFinder
+    # ── 6) attach & run the FastaiLRFinder ──────────────────────────
     lr_finder = FastaiLRFinder()
     to_save   = {
         "model":     accelerator.unwrap_model(model),
@@ -232,8 +249,9 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     ):
         engine.run(dataloader)
 
-    # 7) return the suggested LR
+    # ── 7) return suggested LR ──────────────────────────────────────
     return lr_finder.lr_suggestion()
+
 
 
 
