@@ -75,7 +75,7 @@ max_steps: 10000
 find_lr: true              # turn on the finder
 lr_finder_start: 1e-7 
 lr_finder_end: 1e-1
-lr_finder_steps: 20
+lr_finder_steps: 100
 
 debug:
 
