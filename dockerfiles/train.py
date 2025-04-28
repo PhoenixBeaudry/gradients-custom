@@ -176,27 +176,29 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     logger = logging.getLogger(__name__)
 
     # 1) prepare DataLoader
-    batch_size   = int(cfg.get("micro_batch_size", 4))
-    num_workers  = int(cfg.get("dataloader_num_workers", 8))
-    collator     = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    dataloader   = DataLoader(
+    batch_size  = int(cfg.get("micro_batch_size", 4))
+    num_workers = int(cfg.get("dataloader_num_workers", 8))
+    collator    = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    dataloader  = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        collate_fn=collator
+        collate_fn=collator,
     )
 
     # 2) optimizer with a tiny start_lr
-    start_lr     = float(cfg.get("lr_finder_start", 1e-7))
-    optimizer    = torch.optim.AdamW(model.parameters(), lr=start_lr)
+    start_lr  = float(cfg.get("start_lr", 1e-7))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
-    # 3) move everything onto the right device / distributed setup
-    model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
+    # 3) move model to the correct device (no DDP)
+    device = accelerator.device
+    model.to(device)
 
-    # 4) define a one‐step Ignite update function
+    # 4) define a single‐step Ignite update that moves each batch to device
     def _update(engine, batch):
         model.train()
+        batch = {k: v.to(device) for k, v in batch.items()}
         loss = model(**batch).loss
         optimizer.zero_grad()
         accelerator.backward(loss)
@@ -205,35 +207,34 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
 
     engine = Engine(_update)
 
-    # 5) figure out how many iterations we'll run, and log every 10%
-    num_iter = int(cfg.get("lr_finder_steps"))
-    if num_iter is None:
-        num_iter = len(dataloader)
+    # 5) logging every 10% of the run
+    num_iter = cfg.get("lr_finder_steps") or len(dataloader)
     log_every = max(1, num_iter // 10)
 
     @engine.on(Events.ITERATION_COMPLETED(every=log_every))
     def _log_progress(engine):
         lr   = optimizer.param_groups[0]["lr"]
         loss = engine.state.output
-        logger.info(f"[LR Finder] iter {engine.state.iteration}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
+        logger.info(f"[LR‐Finder] iter {engine.state.iteration}/{num_iter} — lr={lr:.2e}, loss={loss:.4f}")
 
     # 6) attach and run the FastaiLRFinder
     lr_finder = FastaiLRFinder()
     to_save   = {
         "model":     accelerator.unwrap_model(model),
-        "optimizer": optimizer
+        "optimizer": optimizer,
     }
     with lr_finder.attach(
-            engine,
-            to_save=to_save,
-            start_lr=start_lr,
-            end_lr=float(cfg.get("lr_finder_end", 0.1)),
-            num_iter=num_iter
-        ):
+        engine,
+        to_save=to_save,
+        start_lr=start_lr,
+        end_lr=float(cfg.get("end_lr", 10.0)),
+        num_iter=num_iter,
+    ):
         engine.run(dataloader)
 
     # 7) return the suggested LR
     return lr_finder.lr_suggestion()
+
 
 
 
