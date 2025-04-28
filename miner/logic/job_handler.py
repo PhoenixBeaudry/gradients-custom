@@ -65,6 +65,7 @@ class DockerEnvironment:
 def _load_and_modify_config(
     dataset: str,
     model: str,
+    hours_to_complete: int,
     dataset_type: InstructDatasetType | DPODatasetType,
     file_format: FileFormat,
     task_id: str,
@@ -101,6 +102,7 @@ def _load_and_modify_config(
         config["sequence_len"] = desired_len
 
     config["mlflow_experiment_name"] = dataset
+    config["hours_to_complete"] = hours_to_complete
 
     return config
 
@@ -374,6 +376,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
     config = _load_and_modify_config(
         job.dataset,
         job.model,
+        hours_to_complete,
         job.dataset_type,
         job.file_format,
         job.job_id,
@@ -432,7 +435,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
                 "mode": "rw",
             }
 
-        # Launch Unsloth container
+        # Launch training container
         container = docker_client.containers.run(
             image=cst.MINER_DOCKER_IMAGE,
             environment=docker_env,
