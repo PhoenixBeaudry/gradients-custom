@@ -133,10 +133,10 @@ def apply_lora_adapter(model: AutoModelForCausalLM, cfg: dict) -> AutoModelForCa
             raise ValueError("Could not auto-detect attention modules for LoRA. Please set 'target_modules' in config.")
 
     peft_config = LoraConfig(
-        r=cfg.get('lora_r', 16),
-        lora_alpha=cfg.get('lora_alpha', 16),
+        r=int(cfg.get('lora_r', 16)),
+        lora_alpha=int(cfg.get('lora_alpha', 16)),
         target_modules=targets,
-        lora_dropout=cfg.get('lora_dropout', 0.0),
+        lora_dropout=float(cfg.get('lora_dropout', 0.0)),
         bias='none',
         task_type='CAUSAL_LM'
     )
