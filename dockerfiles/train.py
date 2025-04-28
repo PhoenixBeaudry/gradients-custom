@@ -173,13 +173,19 @@ def load_dpo_datasets(cfg: dict, tokenizer: AutoTokenizer):
 
 def find_lr(cfg, model, train_ds, tokenizer, accelerator):
     # 1) cast config values
-    batch_size       = int(cfg.get("micro_batch_size", 4))
-    num_workers      = int(cfg.get("dataloader_num_workers", 8))
-    start_lr         = float(cfg.get("lr_finder_start", 1e-7))
-    end_lr           = float(cfg.get("lr_finder_end", 10.0))
-    num_iter         = int(cfg.get("lr_finder_steps", 100))
+    batch_size  = int(cfg.get("micro_batch_size", 4))
+    num_workers = int(cfg.get("dataloader_num_workers", 8))
+    start_lr    = float(cfg.get("lr_finder_start", 1e-7))
+    end_lr      = float(cfg.get("lr_finder_end", 10.0))
+    num_iter    = int(cfg.get("lr_finder_steps", 100))
 
-    # 2) build a small DataLoader
+    # 2) prune away any columns except the ones collator needs
+    keep = {"input_ids", "attention_mask"}
+    to_remove = [c for c in train_ds.column_names if c not in keep]
+    if to_remove:
+        train_ds = train_ds.remove_columns(to_remove)
+
+    # 3) build a small DataLoader
     collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
     loader = DataLoader(
         train_ds,
@@ -190,19 +196,16 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         pin_memory=True,
     )
 
-    # 3) move model & create optimizer
+    # 4) move model & create optimizer
     device = accelerator.device
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=start_lr)
 
-    # 4) custom train step
+    # 5) define a bare‐bones train step
     def train_step(engine, batch):
         model.train()
-        batch = {k: v.to(device) for k, v in batch.items()
-                 if k in ("input_ids", "attention_mask")}
-        labels = batch["input_ids"]
-        loss = model(**batch, labels=labels).loss
-
+        batch = {k: v.to(device) for k,v in batch.items()}
+        loss = model(**batch, labels=batch["input_ids"]).loss
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -210,7 +213,7 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
 
     trainer = Engine(train_step)
 
-    # 5) attach finder with cast values
+    # 6) attach the finder
     lr_finder = FastaiLRFinder()
     lr_finder.attach(
         trainer,
@@ -220,13 +223,10 @@ def find_lr(cfg, model, train_ds, tokenizer, accelerator):
         num_iter=num_iter,
     )
 
-    # 6) run just a few iterations
+    # 7) run a single pass
     trainer.run(loader, max_epochs=1)
 
-    # 7) grab suggestion
-    suggested = lr_finder.suggested_lr()
-    accelerator.print(f"🔍 LR-finder suggests: {suggested:.2e}")
-    return suggested
+    return lr_finder.suggested_lr()
 
 
 
@@ -362,11 +362,18 @@ def main():
     load_fn = load_dpo_datasets if rl_mode else load_sft_datasets
     train_ds, eval_ds = load_fn(cfg, tokenizer)
 
+    # only SFT & only on rank0
+    if cfg.get("find_lr", False) and not rl_mode:
+        if accelerator.is_local_main_process:
+            suggested = find_lr(cfg, model, train_ds, tokenizer, accelerator)
+        else:
+            suggested = None
 
-    if cfg.get("find_lr", False):
-        # ensures we pass a float back into cfg
-        cfg["learning_rate"] = float(find_lr(cfg, model, train_ds, tokenizer, accelerator))
-
+        # wait for everyone, then broadcast
+        accelerator.wait_for_everyone()
+        lr = accelerator.gather_for_metrics(suggested)[0]  # rank0’s value
+        cfg["learning_rate"] = float(lr)
+        accelerator.print(f"🔍 LR-finder suggests: {lr:.2e}")
 
     callbacks = []
     if cfg.get('early_stopping', True):
