@@ -120,10 +120,11 @@ def load_model(model_name: str, cfg: dict) -> AutoModelForCausalLM:
         return AutoModelForCausalLM.from_pretrained(
             model_name,
             attn_implementation='flash_attention_2',
+            trust_remote_code=True,
             **common_kwargs
         )
     except Exception:
-        return AutoModelForCausalLM.from_pretrained(model_name, **common_kwargs)
+        return AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, **common_kwargs)
 
 
 def apply_lora_adapter(model: AutoModelForCausalLM, cfg: dict) -> AutoModelForCausalLM:
@@ -147,7 +148,7 @@ def apply_lora_adapter(model: AutoModelForCausalLM, cfg: dict) -> AutoModelForCa
         r=int(cfg.get('lora_r', 16)),
         lora_alpha=int(cfg.get('lora_alpha', 16)),
         target_modules=targets,
-        lora_dropout=float(cfg.get('lora_dropout', 0.0)),
+        lora_dropout=float(cfg.get('lora_dropout', 0.05)),
         bias='none',
         task_type='CAUSAL_LM'
     )
@@ -244,10 +245,10 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
             gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 2)),
             dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
             num_train_epochs=int(cfg.get('num_epochs', 1)),
-            learning_rate=float(cfg.get('learning_rate', 5e-5))/3,
+            learning_rate=float(cfg.get('learning_rate', 5e-5)),
             optim=cfg.get('optimizer', 'lion_8bit'),
             warmup_steps=int(cfg.get('warmup_steps', 25)),
-            lr_scheduler_type=SchedulerType.COSINE_WITH_RESTARTS,
+            lr_scheduler_type=SchedulerType.COSINE,
             max_steps=int(cfg.get('max_steps', -1)),
             logging_steps=int(cfg.get('logging_steps', 100)),
             eval_strategy='steps',
@@ -294,10 +295,10 @@ def build_trainer(cfg: dict, model, tokenizer, train_ds, eval_ds, callbacks):
         gradient_accumulation_steps=int(cfg.get('gradient_accumulation_steps', 2)),
         dataloader_num_workers=int(cfg.get('dataloader_num_workers', 8)),
         num_train_epochs=int(cfg.get('num_epochs', 1)),
-        learning_rate=float(cfg.get('learning_rate', 5e-5))/3,
+        learning_rate=float(cfg.get('learning_rate', 5e-5)),
         optim=cfg.get('optimizer', 'lion_8bit'),
         warmup_steps=int(cfg.get('warmup_steps', 25)),
-        lr_scheduler_type=SchedulerType.COSINE_WITH_RESTARTS,
+        lr_scheduler_type=SchedulerType.COSINE,
         load_best_model_at_end=True,
         max_steps=int(cfg.get('max_steps', -1)),
         logging_steps=int(cfg.get('logging_steps', 100)),
