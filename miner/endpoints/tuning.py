@@ -220,14 +220,28 @@ async def task_offer(
 async def task_offer_image(
     request: MinerTaskOffer,
     config: Config = Depends(get_config),
-    # worker_config: WorkerConfig = Depends(get_worker_config), # Removed
+    worker_config: WorkerConfig = Depends(get_worker_config),
 ) -> MinerTaskResponse:
     try:
         logger.info("An image offer has come through")
+        global current_job_finish_time
+        current_time = datetime.now()
 
-        # reject
-        logger.info(f"Rejecting image offer)")
-        return MinerTaskResponse(message="No images for now", accepted=False)
+        if request.task_type != TaskType.IMAGETASK:
+            return MinerTaskResponse(message="This endpoint only accepts image tasks", accepted=False)
+
+        if current_job_finish_time is None or current_time + timedelta(hours=1) > current_job_finish_time:
+            if request.hours_to_complete < 8:
+                logger.info("Accepting the image offer")
+                return MinerTaskResponse(message="Yes. I can do image jobs", accepted=True)
+            else:
+                logger.info("Rejecting offer - too long")
+                return MinerTaskResponse(message="I only accept small jobs", accepted=False)
+        else:
+            return MinerTaskResponse(
+                message=f"Currently busy with another job until {current_job_finish_time.isoformat()}",
+                accepted=False,
+            )
 
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
@@ -236,7 +250,7 @@ async def task_offer_image(
         logger.error(f"Unexpected error in task_offer_image: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing task offer: {str(e)}")
-
+    
 
 async def requeue_job(job_id: str):
     """
