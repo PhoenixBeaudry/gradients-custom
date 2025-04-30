@@ -183,7 +183,7 @@ async def task_offer(
 
         # Check model parameter count
         # Reject if model size is 32B or larger
-        if request.model_params_count is not None and request.model_params_count >= 32_000_000_000:
+        if request.model_params_count is not None and request.model_params_count >= 82_000_000_000:
             logger.info(f"Rejecting offer: Model size too large ({request.model_params_count / 1_000_000_000:.1f}B >= 32B)")
             return MinerTaskResponse(message="Model size too large (>= 32B)", accepted=False)
 
