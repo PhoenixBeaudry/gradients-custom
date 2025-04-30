@@ -224,24 +224,29 @@ async def task_offer_image(
 ) -> MinerTaskResponse:
     try:
         logger.info("An image offer has come through")
-        global current_job_finish_time
-        current_time = datetime.now()
 
         if request.task_type != TaskType.IMAGETASK:
             return MinerTaskResponse(message="This endpoint only accepts image tasks", accepted=False)
 
-        if current_job_finish_time is None or current_time + timedelta(hours=1) > current_job_finish_time:
-            if request.hours_to_complete < 8:
-                logger.info("Accepting the image offer")
-                return MinerTaskResponse(message="Yes. I can do image jobs", accepted=True)
-            else:
-                logger.info("Rejecting offer - too long")
-                return MinerTaskResponse(message="I only accept small jobs", accepted=False)
-        else:
-            return MinerTaskResponse(
-                message=f"Currently busy with another job until {current_job_finish_time.isoformat()}",
-                accepted=False,
-            )
+        # Check RQ queue length and running jobs
+        queued_count = rq_queue.count
+        started_registry = StartedJobRegistry(queue=rq_queue)
+        running_count = started_registry.count
+        total_active = queued_count + running_count
+        capacity = 2 
+
+        if total_active >= capacity: # Keep existing buffer logic
+            logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
+            return MinerTaskResponse(message=f"Queue full ({total_active})", accepted=False)
+
+        # optional: still reject absurdly long jobs if you want
+        if request.hours_to_complete >= 8:
+            logger.info(f"Rejecting offer: too long ({request.hours_to_complete}h)")
+            return MinerTaskResponse(message="Job too long", accepted=False)
+
+        # otherwise accept
+        logger.info(f"Accepting offer ({total_active+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
+        return MinerTaskResponse(message="-----:)-----", accepted=True)
 
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
