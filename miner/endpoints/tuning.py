@@ -220,7 +220,7 @@ async def task_offer(
 async def task_offer_image(
     request: MinerTaskOffer,
     config: Config = Depends(get_config),
-    worker_config: WorkerConfig = Depends(get_worker_config),
+    # worker_config: WorkerConfig = Depends(get_worker_config),
 ) -> MinerTaskResponse:
     try:
         logger.info("An image offer has come through")
