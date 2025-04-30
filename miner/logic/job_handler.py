@@ -9,7 +9,7 @@ import docker
 import pandas as pd
 import toml
 import yaml
-from docker.errors import DockerException
+from docker.errors import DockerException, ReadTimeout
 from fiber.logging_utils import get_logger
 from huggingface_hub import HfApi
 from core import constants as cst
@@ -264,17 +264,30 @@ def start_tuning_container_diffusion(job: DiffusionJob, hours_to_complete: int):
         # Use the shared stream_logs function
         stream_logs(container)
 
-        result = container.wait()
+        timeout_seconds = hours_to_complete * 3600 * 0.95
+        logger.info(f"Waiting for container {container.id} to complete with a timeout of {timeout_seconds} seconds ({hours_to_complete} hours)...")
 
-        if result["StatusCode"] != 0:
-            raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
-
-    except Exception as e:
-        logger.error(f"Error processing job: {str(e)}")
-        raise
+        try:
+            result = container.wait(timeout=timeout_seconds)
+            logger.info(f"Container {container.id} finished with result: {result}")
+            if result["StatusCode"] != 0:
+                raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
+        except ReadTimeout:
+            logger.warning(f"Container {container.id} for job {job.job_id} exceeded the time limit of {hours_to_complete} hours. Attempting graceful stop...")
+            try:
+                container.stop(timeout=60) # 60 second grace period
+                logger.info(f"Container {container.id} stopped gracefully.")
+            except Exception as stop_err:
+                logger.error(f"Failed to gracefully stop container {container.id}: {stop_err}. It might be forcefully killed.")
+            # Raise a specific error to indicate timeout
+            raise TimeoutError(f"Container for job {job.job_id} exceeded the time limit of {hours_to_complete} hours.")
+        except Exception as e:
+            logger.error(f"Error waiting for or processing container {container.id}: {str(e)}")
+            raise # Re-raise other exceptions
 
     finally:
-        if "container" in locals():
+        # Ensure container object exists before trying to remove
+        if "container" in locals() and container:
             try:
                 container.remove(force=True)
                 logger.info(f"Removed container for job {job.job_id}")
@@ -459,23 +472,39 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
         # Use the shared stream_logs function
         stream_logs(container)
 
-        result = container.wait()
+        timeout_seconds = hours_to_complete * 3600 * 0.95
+        logger.info(f"Waiting for container {container.id} to complete with a timeout of {timeout_seconds} seconds ({hours_to_complete} hours)...")
 
-        if result["StatusCode"] != 0:
-            raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
-
-    except Exception as e:
-        logger.error(f"Error processing job: {str(e)}")
-        raise
+        try:
+            result = container.wait(timeout=timeout_seconds)
+            logger.info(f"Container {container.id} finished with result: {result}")
+            if result["StatusCode"] != 0:
+                raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
+        except ReadTimeout:
+            logger.warning(f"Container {container.id} for job {job.job_id} exceeded the time limit of {hours_to_complete} hours. Attempting graceful stop...")
+            try:
+                container.stop(timeout=60) # 60 second grace period
+                logger.info(f"Container {container.id} stopped gracefully.")
+            except Exception as stop_err:
+                logger.error(f"Failed to gracefully stop container {container.id}: {stop_err}. It might be forcefully killed.")
+            # Raise a specific error to indicate timeout
+            raise TimeoutError(f"Container for job {job.job_id} exceeded the time limit of {hours_to_complete} hours.")
+        except Exception as e:
+            logger.error(f"Error waiting for or processing container {container.id}: {str(e)}")
+            raise # Re-raise other exceptions
 
     finally:
         repo = config.get("hub_model_id", None)
         if repo:
-            hf_api = HfApi(token=cst.HUGGINGFACE_TOKEN)
-            hf_api.update_repo_settings(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
-            logger.info(f"Successfully made repository {repo} public")
+            try:
+                hf_api = HfApi(token=cst.HUGGINGFACE_TOKEN)
+                hf_api.update_repo_settings(repo_id=repo, private=False, token=cst.HUGGINGFACE_TOKEN)
+                logger.info(f"Successfully made repository {repo} public")
+            except Exception as hf_err:
+                logger.warning(f"Failed to make repository {repo} public: {hf_err}")
 
-        if "container" in locals():
+        # Ensure container object exists before trying to remove
+        if "container" in locals() and container:
             try:
                 container.remove(force=True)
                 logger.info("Container removed")
