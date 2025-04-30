@@ -22,7 +22,7 @@ gpu_memory_limit: 80GiB
 adapter: lora
 lora_model_dir:
 lora_r: 256
-lora_alpha: 156
+lora_alpha: 256
 lora_dropout: 0.0
 lora_target_linear: true
 lora_mlp_kernel: true
@@ -72,7 +72,7 @@ max_steps: 2500
 
 debug:
 
-deepspeed: /workspace/axolotl/configs/deepspeed_stage1.json
+deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
   
 weight_decay: 0.01
 plugins:
