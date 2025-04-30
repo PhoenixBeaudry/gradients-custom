@@ -11,7 +11,7 @@ import signal
 import os
 import sys
 from fiber.logging_utils import get_logger
-import core.constants as cst
+from core import constants as cst
 
 logger = get_logger(__name__)
 
