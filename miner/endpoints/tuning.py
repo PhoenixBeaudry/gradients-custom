@@ -192,7 +192,7 @@ async def task_offer(
         started_registry = StartedJobRegistry(queue=rq_queue)
         running_count = started_registry.count
         total_active = queued_count + running_count
-        capacity = 4 # TODO: Make this configurable?
+        capacity = 2 
 
         if total_active >= capacity: # Keep existing buffer logic
             logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
@@ -225,25 +225,9 @@ async def task_offer_image(
     try:
         logger.info("An image offer has come through")
 
-        # Check RQ queue length and running jobs
-        queued_count = rq_queue.count
-        started_registry = StartedJobRegistry(queue=rq_queue)
-        running_count = started_registry.count
-        total_active = queued_count + running_count
-        capacity = 4 # TODO: Make this configurable?
-
-        if total_active >= capacity: # Keep existing buffer logic
-            logger.info(f"Rejecting offer: Queue full (queued={queued_count}, running={running_count}, total={total_active})")
-            return MinerTaskResponse(message=f"Queue full ({total_active})", accepted=False)
-
-        # optional: still reject absurdly long jobs if you want
-        if request.hours_to_complete >= 48:
-            logger.info(f"Rejecting offer: too long ({request.hours_to_complete}h)")
-            return MinerTaskResponse(message="Job too long", accepted=False)
-
-        # otherwise accept
-        logger.info(f"Accepting offer ({total_active+1}/{capacity}): {request.model} ({request.hours_to_complete}h)")
-        return MinerTaskResponse(message="-----:)-----", accepted=True)
+        # reject
+        logger.info(f"Rejecting image offer)")
+        return MinerTaskResponse(message="No images for now", accepted=False)
 
     except ValidationError as e:
         logger.error(f"Validation error: {str(e)}")
