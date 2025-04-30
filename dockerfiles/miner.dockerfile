@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 axolotlai/axolotl:main-latest
+FROM axolotlai/axolotl:main-latest
 
 RUN pip install mlflow huggingface_hub wandb protobuf
 
