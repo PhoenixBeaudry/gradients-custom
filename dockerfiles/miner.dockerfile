@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 axolotlai/axolotl:main-20241128-py3.11-cu124-2.5.1
+FROM axolotlai/axolotl:main-latest
 
 RUN pip install mlflow huggingface_hub wandb protobuf
 
@@ -37,5 +37,5 @@ CMD echo 'Preparing data...' && \
     cp /workspace/input_data/${DATASET_FILENAME} /workspace/axolotl/${DATASET_FILENAME}; \
     fi && \
     echo 'Starting training command' && \
-    accelerate launch -m axolotl.cli.train ${CONFIG_DIR}/${JOB_ID}.yml
+    axolotl train ${CONFIG_DIR}/${JOB_ID}.yml
 

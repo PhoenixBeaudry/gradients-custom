@@ -29,20 +29,17 @@ lora_fan_in_fan_out:
 
 auto_find_batch_size: true
 gradient_accumulation_steps: 4
-micro_batch_size: 2
-num_epochs: 3
 optimizer: lion_8bit
 lr_scheduler: cosine
 learning_rate: 5e-5
 group_by_length: true
 
 train_on_inputs: false
-group_by_length: true
-bf16: auto
+bf16: true
 fp16: false
-tf32: true
+tf32: false
 
-gradient_checkpointing: true
+gradient_checkpointing: false
 resume_from_checkpoint:
 local_rank:
 logging_steps: 5
@@ -50,7 +47,6 @@ flash_attention: true
 s2_attention:
 
 wandb_project: Gradients-On-Demand
-wandb_entity:
 wandb_mode: online
 wandb_run: your_name
 wandb_runid: default
@@ -77,7 +73,7 @@ debug:
 
 deepspeed: /workspace/axolotl/configs/deepspeed_stage2.json
   
-weight_decay: 0.0
+weight_decay: 0.01
 plugins:
   - axolotl.integrations.liger.LigerPlugin
 liger_rope: true
