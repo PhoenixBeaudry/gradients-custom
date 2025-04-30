@@ -9,7 +9,8 @@ import docker
 import pandas as pd
 import toml
 import yaml
-from docker.errors import DockerException, ReadTimeout
+from docker.errors import DockerException
+from requests.exceptions import ReadTimeout # Import ReadTimeout from requests
 from fiber.logging_utils import get_logger
 from huggingface_hub import HfApi
 from core import constants as cst
@@ -272,7 +273,7 @@ def start_tuning_container_diffusion(job: DiffusionJob, hours_to_complete: int):
             logger.info(f"Container {container.id} finished with result: {result}")
             if result["StatusCode"] != 0:
                 raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
-        except ReadTimeout:
+        except ReadTimeout: # Catch the correct exception from requests
             logger.warning(f"Container {container.id} for job {job.job_id} exceeded the time limit of {hours_to_complete} hours. Attempting graceful stop...")
             try:
                 container.stop(timeout=60) # 60 second grace period
@@ -480,7 +481,7 @@ def start_tuning_container(job: TextJob, hours_to_complete: int):
             logger.info(f"Container {container.id} finished with result: {result}")
             if result["StatusCode"] != 0:
                 raise DockerException(f"Container exited with non-zero status code: {result['StatusCode']}")
-        except ReadTimeout:
+        except ReadTimeout: # Catch the correct exception from requests
             logger.warning(f"Container {container.id} for job {job.job_id} exceeded the time limit of {hours_to_complete} hours. Attempting graceful stop...")
             try:
                 container.stop(timeout=60) # 60 second grace period
