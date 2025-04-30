@@ -29,9 +29,9 @@ lora_target_linear: true
 auto_find_batch_size: true
 gradient_accumulation_steps: 4
 micro_batch_size: 4
-optimizer: lion_8bit
+optimizer: adamw_torch_fused
 lr_scheduler: cosine
-learning_rate: 5e-5
+learning_rate: 2e-4
 group_by_length: true
 
 train_on_inputs: false
