@@ -101,6 +101,14 @@ def _load_and_modify_config(
     else:
         config["sequence_len"] = desired_len
 
+    # change hyper params based on model size
+    if config["model_params_count"] != 0:
+        if config["model_params_count"] < 4_000_000_000:
+            # If less than 4b do full finetune with higher LR
+            config["learning_rate"] = 4e-4
+            config["adapter"] = None
+            pass
+
     config["mlflow_experiment_name"] = dataset
 
     return config
