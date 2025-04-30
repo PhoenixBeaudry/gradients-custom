@@ -21,9 +21,9 @@ gpu_memory_limit: 80GiB
 
 adapter: lora
 lora_model_dir:
-lora_r: 16
-lora_alpha: 16
-lora_dropout: 0.05
+lora_r: 256
+lora_alpha: 156
+lora_dropout: 0.0
 lora_target_linear: true
 lora_mlp_kernel: true
 lora_qkv_kernel: true
